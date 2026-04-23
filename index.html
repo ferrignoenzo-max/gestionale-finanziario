@@ -94,25 +94,179 @@ const KPI = {
 const SB_URL = 'https://acpvkosgvvljhnudrqpc.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjcHZrb3NndnZsamhudWRycXBjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU4Mjc3OTQsImV4cCI6MjA5MTQwMzc5NH0.8qBjH-IZatwo-H3_7qa-xgyr2I2Jt4-vzB00MQr9snU';
 const SB_H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+const SB_H_WRITE = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type':'application/json', 'Prefer':'resolution=merge-duplicates,return=representation' };
+
+/* ─── FIC LINK ENGINE ───────────────────────────────────────
+   Parser dinamico: legge l'oggetto fattura (campo libero che
+   il cliente/subappaltatore scrive) e cerca codici del tipo:
+     [C167/SAL3]     → commessa C167, SAL n.3
+     [C167/ACC]      → commessa C167, acconto
+     [C167/E12-3]    → commessa C167, extra E12 SAL3
+     [C167/E12-3/SAL2] → commessa+extra+sal
+     [C167/COLL]     → commessa C167, collaudo
+     [C167/DL]       → commessa C167, direzione lavori
+   Case-insensitive. Se l'oggetto contiene più codici prende il primo.
+*/
+const RE_CODICE = /\[\s*([A-Z]\d+)\s*\/\s*(SAL\d+|ACC|COLL|DL|E\d+(?:-\d+)?(?:\/SAL\d+)?)\s*\]/i;
+const parseCodiceCommessa = (oggetto)=>{
+  if(!oggetto) return null;
+  const m = String(oggetto).match(RE_CODICE);
+  if(!m) return null;
+  const codice = m[1].toUpperCase();
+  const riferimento = m[2].toUpperCase();
+  let tipo='SAL', salNum=null, extraId=null;
+  if(riferimento.startsWith('SAL')) { tipo='SAL'; salNum=parseInt(riferimento.slice(3))||null; }
+  else if(riferimento==='ACC') { tipo='Acconto'; }
+  else if(riferimento==='COLL') { tipo='Collaudo'; }
+  else if(riferimento==='DL') { tipo='DL'; }
+  else if(riferimento.startsWith('E')) {
+    tipo='Extra';
+    const parts = riferimento.split('/');
+    extraId = parts[0];
+    if(parts[1]&&parts[1].startsWith('SAL')) salNum=parseInt(parts[1].slice(3))||null;
+  }
+  return { codice, tipo, salNum, extraId, raw: m[0] };
+};
+
+/* Calcola garanzia dinamicamente dalla config commessa */
+const calcolaGaranzia = (fattura, commessa)=>{
+  if(!commessa||!commessa.garanzia) return 0;
+  if(fattura.tipoRif==='Acconto') return 0; // acconti mai garanzia
+  const g = commessa.garanzia;
+  if(g.tipo==='Percentuale') {
+    const perc = parseFloat(g.val)||0;
+    return Math.round((fattura.lordo||0) * perc / 100);
+  }
+  if(g.tipo==='Importo fisso') {
+    // importo fisso ripartito su tutti i SAL della commessa (proporzionale)
+    const tot = parseFloat(g.val)||0;
+    const impContr = commessa.importoContrattuale||0;
+    if(impContr<=0) return 0;
+    return Math.round(tot * (fattura.lordo||0) / impContr);
+  }
+  return 0;
+};
+
+/* Link dinamico: applica parser su ogni fattura e aggancia a commessa se esiste */
+const linkFatture = ()=>{
+  const byCode = new Map();
+  D.commesse.forEach(c=>{ if(c.codice) byCode.set(String(c.codice).toUpperCase(), c); });
+  const applyOn = (arr)=>{
+    arr.forEach(f=>{
+      const parsed = parseCodiceCommessa(f.oggetto);
+      if(parsed) {
+        const c = byCode.get(parsed.codice);
+        f.codiceRaw = parsed.raw;
+        f.tipoRif = parsed.tipo;
+        f.salNum = parsed.salNum;
+        f.extraId = parsed.extraId;
+        if(c) {
+          f.commessa = c.id;
+          f.commessaCodice = c.codice;
+          f.sal = parsed.salNum;
+          // ricalcolo garanzia dinamica
+          f.garanzia = calcolaGaranzia(f, c);
+          f.netto = Math.max(0, (f.lordo||0) - (f.garanzia||0) - (f.compGen||0) - (f.compSub||0));
+        } else {
+          // codice presente ma commessa non ancora creata → orfana "in attesa"
+          f.commessa = null;
+          f.commessaCodice = parsed.codice;
+          f.statoLink = 'InAttesa';
+        }
+      } else {
+        f.commessa = f.commessa||null;
+        f.commessaCodice = null;
+        f.tipoRif = null;
+        f.salNum = null;
+        f.statoLink = 'NonAssegnata';
+      }
+    });
+  };
+  applyOn(D.fattureAttive);
+  applyOn(D.fatturePassive);
+};
+
+/* Ricalcola KPI (chiamato dopo ogni link/sync) */
+const ricalcolaKPI = ()=>{
+  KPI.daIncassareNetto = D.fattureAttive.reduce((a,f)=>a+(f.netto||0),0);
+  KPI.daIncassareNettoAperte = D.fattureAttive.filter(f=>f.stato!=='Incassata').reduce((a,f)=>a+(f.netto||0),0);
+  KPI.daPagareNetto = D.fatturePassive.reduce((a,f)=>a+(f.netto||0),0);
+  const anno = new Date().getFullYear();
+  KPI.fatturatoMarzo = D.fattureAttive.filter(f=>f.data&&f.data.startsWith(anno+'-03')).reduce((a,f)=>a+(f.lordo||0),0);
+  KPI.fatturatoFeb   = D.fattureAttive.filter(f=>f.data&&f.data.startsWith(anno+'-02')).reduce((a,f)=>a+(f.lordo||0),0);
+  KPI.fatturatoGen   = D.fattureAttive.filter(f=>f.data&&f.data.startsWith(anno+'-01')).reduce((a,f)=>a+(f.lordo||0),0);
+  KPI.commesseAttive = D.commesse.filter(c=>c.stato==='Attiva').length;
+  KPI.ordiniAttivi = D.commesse.filter(c=>c.tipoLavoro==='Ordine'&&c.stato==='Attiva').length;
+  KPI.fattureOrfane = [...D.fattureAttive,...D.fatturePassive].filter(f=>f.statoLink==='NonAssegnata').length;
+  KPI.fattureInAttesa = [...D.fattureAttive,...D.fatturePassive].filter(f=>f.statoLink==='InAttesa').length;
+};
+
 async function loadFromSupabase() {
-  const [attRes, pasRes, anaRes] = await Promise.all([
-    fetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=num.asc`, {headers: SB_H}),
-    fetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=num.asc`, {headers: SB_H}),
-    fetch(`${SB_URL}/rest/v1/anagrafica?select=*&order=nome.asc`, {headers: SB_H}),
+  // Fetch con tolleranza 404 (tabella commesse potrebbe non esistere ancora)
+  const safeFetch = async (url)=>{ try { const r = await fetch(url,{headers:SB_H}); return r.ok?await r.json():[]; } catch { return []; } };
+  const [attive, passive, ana, commesse] = await Promise.all([
+    safeFetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=data.desc`),
+    safeFetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=data.desc`),
+    safeFetch(`${SB_URL}/rest/v1/anagrafica?select=*&order=nome.asc`),
+    safeFetch(`${SB_URL}/rest/v1/commesse?select=*&order=codice.asc`),
   ]);
-  const [attive, passive, ana] = await Promise.all([attRes.json(), pasRes.json(), anaRes.json()]);
   D.fattureAttive.splice(0);
-  attive.forEach(f => D.fattureAttive.push({ id:f.id, num:f.num, data:f.data, scadenza:null, commessa:null, cliente:f.cliente, tipo:'Fattura', sal:null, lordo:f.lordo, garanzia:f.garanzia||0, netto:f.netto, stato:f.stato, note:'' }));
+  attive.forEach(f => D.fattureAttive.push({
+    id: f.id, fic_id: f.fic_id||null, num: f.num, data: f.data,
+    scadenza: f.scadenza||null,
+    cliente: f.cliente, tipo: 'Fattura',
+    oggetto: f.oggetto||f.oggetto_visibile||'',
+    imponibile: f.imponibile||0, iva: f.iva||0,
+    lordo: f.lordo||0, garanzia: 0, netto: f.lordo||0,
+    stato: f.stato||'Aperta', note: f.note||'',
+    commessa: null, commessaCodice: null, sal: null,
+    tipoRif: null, salNum: null, extraId: null, statoLink: 'NonAssegnata',
+    compGen: 0, compSub: 0,
+  }));
   D.fatturePassive.splice(0);
-  passive.forEach(f => D.fatturePassive.push({ id:f.id, num:f.num, data:f.data, scadenza:null, commessa:null, fornitore:f.fornitore, tipo:'Fattura', lordo:f.lordo, garanzia:f.garanzia||0, compGen:0, compSub:0, netto:f.netto, stato:f.stato, note:'' }));
+  passive.forEach(f => D.fatturePassive.push({
+    id: f.id, fic_id: f.fic_id||null, num: f.num, data: f.data,
+    scadenza: f.scadenza||null,
+    fornitore: f.fornitore, tipo: 'Fattura',
+    oggetto: f.oggetto||f.oggetto_visibile||'',
+    imponibile: f.imponibile||0, iva: f.iva||0,
+    lordo: f.lordo||0, garanzia: 0,
+    compGen: 0, compSub: 0,
+    netto: f.lordo||0,
+    stato: f.stato||'Aperta', note: f.note||'',
+    commessa: null, commessaCodice: null, sal: null,
+    tipoRif: null, salNum: null, extraId: null, statoLink: 'NonAssegnata',
+  }));
   D.anagrafica.splice(0);
-  ana.forEach(a => D.anagrafica.push({ id:a.id, nome:a.nome, tipo:a.tipo, piva:a.piva, cf:a.cf, email:a.email, tel:a.telefono, ind:a.indirizzo, note:a.note, attivo:0, pagato:0, commesse:[] }));
-  KPI.daIncassareNetto = D.fattureAttive.reduce((a,f)=>a+f.netto, 0);
-  KPI.daIncassareNettoAperte = D.fattureAttive.filter(f=>f.stato!=='Incassata').reduce((a,f)=>a+f.netto, 0);
-  KPI.daPagareNetto = D.fatturePassive.reduce((a,f)=>a+f.netto, 0);
-  KPI.fatturatoMarzo = D.fattureAttive.filter(f=>f.data&&f.data.startsWith('2026-03')).reduce((a,f)=>a+f.lordo, 0);
-  KPI.fatturatoFeb   = D.fattureAttive.filter(f=>f.data&&f.data.startsWith('2026-02')).reduce((a,f)=>a+f.lordo, 0);
-  KPI.fatturatoGen   = D.fattureAttive.filter(f=>f.data&&f.data.startsWith('2026-01')).reduce((a,f)=>a+f.lordo, 0);
+  ana.forEach(a => D.anagrafica.push({
+    id: a.id, nome: a.nome, tipo: a.tipo,
+    piva: a.piva, cf: a.cf, email: a.email, tel: a.telefono||a.tel,
+    ind: a.indirizzo||a.ind, note: a.note,
+    iban: a.iban||'', pec: a.pec||'', codiceSdi: a.codice_sdi||a.codiceSdi||'',
+    terminiPagamento: a.termini_pagamento||a.terminiPagamento||'',
+    metodoPagamento: a.metodo_pagamento||a.metodoPagamento||'',
+    attivo: 0, pagato: 0, commesse: [],
+  }));
+  D.commesse.splice(0);
+  commesse.forEach(c => D.commesse.push({
+    id: c.id, codice: c.codice, nome: c.nome, cliente: c.cliente,
+    tipoLavoro: c.tipo_lavoro||c.tipoLavoro||'Commessa',
+    importoContrattuale: c.importo_contrattuale||c.importoContrattuale||0,
+    stato: c.stato||'Attiva',
+    dataInizio: c.data_inizio||c.dataInizio,
+    dataFine: c.data_fine||c.dataFine,
+    fattMode: c.fatt_mode||c.fattMode||'SAL',
+    pagMode: c.pag_mode||c.pagMode||'Bonifico',
+    salProdAttivoTot: c.sal_prod_attivo_tot||0,
+    fatturato: c.fatturato||0, incassato: c.incassato||0, pagato: c.pagato||0,
+    madreId: c.madre_id||null, autonomo: c.autonomo||null,
+    acconto: c.acconto||null, garanzia: c.garanzia||null,
+    compEnabled: c.comp_enabled||false,
+    contratto: null, criticita: c.criticita||[],
+  }));
+  // LINK DINAMICO: collega ogni fattura alla commessa giusta via oggetto
+  linkFatture();
+  ricalcolaKPI();
 }
 KPI.salProdAttivoTot = D.commesse.reduce((a,c)=>a+c.salProdAttivoTot,0);
 KPI.salProdPassivoTot = D.commesse.reduce((a,c)=>a+c.salProdPassivoTot,0);
@@ -558,6 +712,22 @@ const PageDashboard = ({onNav,openModal})=>{
         <KPICard label="Movimenti non riconciliati" value={KPI.nonRiconciliati} sub={fmt(KPI.nonRiconciliatiImporto)} color={KPI.nonRiconciliati>0?T.red:'#22c55e'} icon="🏦" alert={KPI.nonRiconciliati>0}
           onClick={()=>onNav('banca')} />
       </div>
+
+      {/* Banner Fatture non collegate (da FIC) */}
+      {(KPI.fattureOrfane>0||KPI.fattureInAttesa>0)&&(
+        <div style={{background:T.amberL,border:`1px solid ${T.amber}`,borderRadius:10,padding:'12px 16px',marginBottom:18,display:'flex',alignItems:'center',gap:14}}>
+          <span style={{fontSize:22}}>🔗</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:13,color:T.amber}}>Fatture da collegare a commessa</div>
+            <div style={{fontSize:12,color:T.textL,marginTop:2}}>
+              {KPI.fattureOrfane>0&&<span><b>{KPI.fattureOrfane}</b> senza codice commessa nell'oggetto</span>}
+              {KPI.fattureOrfane>0&&KPI.fattureInAttesa>0&&<span> · </span>}
+              {KPI.fattureInAttesa>0&&<span><b>{KPI.fattureInAttesa}</b> con codice ma commessa non ancora creata</span>}
+            </div>
+          </div>
+          <Btn variant='outline' size='sm' onClick={()=>onNav('fattureAttive')}>Rivedi fatture</Btn>
+        </div>
+      )}
 
       {/* Pannello dettaglio KPI 30gg (inline, sopra le barre) */}
       {detailPanel&&(
@@ -5096,9 +5266,11 @@ const PageImporta = ({bumpData})=>{
   const caricaLocale=()=>{
     if(!preview) return;
     preview.forEach(({tipo,rows})=>{
-      if(tipo==='fattureAttive'){rows.forEach(r=>{if(!D.fattureAttive.find(f=>f.num===r.num)) D.fattureAttive.push({id:'FA-'+r.num,num:r.num,data:r.data,scadenza:null,commessa:null,cliente:r.cliente,tipo:'Fattura',sal:null,lordo:r.lordo,garanzia:0,netto:r.netto,stato:r.stato,note:''}); });}
-      else{rows.forEach(r=>{if(!D.fatturePassive.find(f=>f.num===r.num)) D.fatturePassive.push({id:'FP-'+r.num,num:r.num,data:r.data,scadenza:null,commessa:null,fornitore:r.fornitore,tipo:'Fattura',lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:''}); });}
+      if(tipo==='fattureAttive'){rows.forEach(r=>{if(!D.fattureAttive.find(f=>f.num===r.num)) D.fattureAttive.push({id:'FA-'+r.num,fic_id:null,num:r.num,data:toISO(r.data),scadenza:r.scadenza||null,commessa:null,commessaCodice:null,cliente:r.cliente,tipo:'Fattura',oggetto:r.oggetto||'',imponibile:0,iva:0,sal:null,lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:'',tipoRif:null,salNum:null,extraId:null,statoLink:'NonAssegnata'}); });}
+      else{rows.forEach(r=>{if(!D.fatturePassive.find(f=>f.num===r.num)) D.fatturePassive.push({id:'FP-'+r.num,fic_id:null,num:r.num,data:toISO(r.data),scadenza:r.scadenza||null,commessa:null,commessaCodice:null,fornitore:r.fornitore,tipo:'Fattura',oggetto:r.oggetto||'',imponibile:0,iva:0,lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:'',tipoRif:null,salNum:null,extraId:null,statoLink:'NonAssegnata'}); });}
     });
+    linkFatture();
+    ricalcolaKPI();
     bumpData();
     setMsg('✅ Dati caricati nel gestionale (sessione corrente).');
   };
@@ -5205,9 +5377,29 @@ const App = ()=>{
   const openModal = useCallback((type,data)=>setModal({type,data}),[]);
   const closeModal = useCallback(()=>setModal(null),[]);
 
-  const addCommessa = useCallback(c=>{
+  const addCommessa = useCallback(async c=>{
     D.commesse.push(c);
+    // re-link di tutte le fatture: quelle "InAttesa" con codice c.codice ora si agganciano
+    linkFatture();
+    ricalcolaKPI();
     bumpData();
+    // Persistenza asincrona su Supabase (tollera fallimento se tabella commesse non esiste ancora)
+    try {
+      const payload = {
+        id: c.id, codice: c.codice, nome: c.nome, cliente: c.cliente,
+        tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale,
+        stato: c.stato, data_inizio: c.dataInizio, data_fine: c.dataFine,
+        fatt_mode: c.fattMode, pag_mode: c.pagMode,
+        madre_id: c.madreId, autonomo: c.autonomo,
+        acconto: c.acconto, garanzia: c.garanzia,
+        comp_enabled: c.compEnabled,
+      };
+      await fetch(`${SB_URL}/rest/v1/commesse`,{
+        method:'POST', headers: SB_H_WRITE, body: JSON.stringify(payload),
+      });
+    } catch(err) {
+      console.warn('Commessa salvata solo in sessione (tabella commesse non ancora disponibile):', err.message);
+    }
   },[bumpData]);
 
   const handleReset = ()=>{
