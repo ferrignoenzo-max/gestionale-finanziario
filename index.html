@@ -82,7 +82,7 @@ const KPI = {
   garanzieMaturate: D.commesse.filter(c=>c.garanzia&&c.garanzia.nonIncassata).reduce((a,c)=>a+c.garanzia.nonIncassata,0),
   accontiResiduo: D.acconti.reduce((a,ac)=>a+ac.residuo,0),
   attiveSubDisp: D.attiveSub.filter(f=>f.stato==='Disponibile'||f.stato==='Parziale').reduce((a,f)=>a+f.importo,0),
-  criticita: D.commesse.reduce((a,c)=>a+c.criticita.length,0),
+  criticita: D.commesse.reduce((a,c)=>a+(c.criticita||[]).length,0),
   commesseAttive: D.commesse.filter(c=>c.stato==='Attiva').length,
   ordiniAttivi: D.commesse.filter(c=>c.tipoLavoro==='Ordine'&&c.stato==='Attiva').length,
   fornGenAperto: D.fornitoriGenerici.reduce((a,f)=>a+f.aperto,0),
@@ -122,10 +122,6 @@ KPI.salProdPct = KPI.importoContrattualeCommesse>0 ? Math.round((KPI.salProdAtti
 // Note di credito
 KPI.ncAttiveTot = D.noteCredito.filter(n=>n.tipo==='Attiva').reduce((a,n)=>a+n.importo,0);
 KPI.ncPassiveTot = D.noteCredito.filter(n=>n.tipo==='Passiva').reduce((a,n)=>a+n.importo,0);
-// Fatturato mese corrente (marzo 2024 = demo)
-KPI.fatturatoMarzo = D.fattureAttive.filter(f=>f.data&&f.data.startsWith('2024-03')).reduce((a,f)=>a+f.lordo,0);
-KPI.fatturatoFeb = D.fattureAttive.filter(f=>f.data&&f.data.startsWith('2024-02')).reduce((a,f)=>a+f.lordo,0);
-KPI.fatturatoGen = D.fattureAttive.filter(f=>f.data&&f.data.startsWith('2024-01')).reduce((a,f)=>a+f.lordo,0);
 
 /* ─── SHARED COMPONENTS ──────────────────────────────────── */
 
@@ -456,7 +452,7 @@ const Header = ({page,onAI,selectedCommessa})=>(
 
 /* ─── PAGE: DASHBOARD ────────────────────────────────────── */
 const PageDashboard = ({onNav,openModal})=>{
-  const [meseKpi,setMeseKpi]=useState('2024-02');
+  const [meseKpi,setMeseKpi]=useState(new Date().toISOString().slice(0,7));
   const [detailPanel,setDetailPanel]=useState(null); // 'utenze30' | 'fornMat30' | null
 
   const AlertItem = ({text,color,commessa})=>(
@@ -728,7 +724,7 @@ const PageDashboard = ({onNav,openModal})=>{
         {/* Alert e scadenze */}
         <Card>
           <SectionTitle children="🚨 Alert & Scadenze Imminenti" action={<Btn onClick={()=>onNav('scadenziario')} variant='ghost' size='sm'>Vedi tutte</Btn>} />
-          {D.commesse.flatMap(c=>c.criticita.map(cr=>({text:cr,commessa:c.codice,color:T.red}))).slice(0,4).map((a,i)=>(
+          {D.commesse.flatMap(c=>(c.criticita||[]).map(cr=>({text:cr,commessa:c.codice,color:T.red}))).slice(0,4).map((a,i)=>(
             <AlertItem key={i} {...a} />
           ))}
           <div style={{marginTop:8}}>
@@ -894,7 +890,7 @@ const PageWatchlist = ({onNav,openModal})=>{
                     <Td right bold color={saldo>=0?T.text:T.red}>{fmt(saldo)}</Td>
                     <Td nowrap>{nextSc?fmtDate(nextSc.data):'—'}</Td>
                     <Td><Badge text={c.stato}/>{scadute>0&&<span style={{marginLeft:4}}><Badge text="Scaduta"/></span>}</Td>
-                    <Td>{c.criticita.length>0?<span style={{background:T.redL,color:T.red,padding:'2px 7px',borderRadius:10,fontSize:11,fontWeight:600}}>{c.criticita.length}</span>:<span style={{color:T.textL}}>—</span>}</Td>
+                    <Td>{(c.criticita||[]).length>0?<span style={{background:T.redL,color:T.red,padding:'2px 7px',borderRadius:10,fontSize:11,fontWeight:600}}>{(c.criticita||[]).length}</span>:<span style={{color:T.textL}}>—</span>}</Td>
                     <Td>
                       <div style={{display:'flex',gap:4}}>
                         <Btn onClick={()=>onNav('dettaglioCommessa',c)} variant='ghost' size='sm'>Dettaglio</Btn>
@@ -977,7 +973,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal})=>{
         <KPICard label="Fatture scadute" value={scadute.length} color={scadute.length>0?T.red:T.green} alert={scadute.length>0} onClick={()=>openModal('scadute')} />
         {c.tipoLavoro==='Commessa'&&<KPICard label="Extra collegati" value={extraC.length} sub={`${extraC.filter(e=>e.stato==='Incompleto'||e.stato==='Critico').length} da configurare`} color={T.blue} onClick={()=>setTab('extra')} />}
         {c.tipoLavoro==='Ordine'&&<KPICard label="Tipo" value="Ordine" sub="Lavoro piccolo – senza Extra" color={T.green} />}
-        <KPICard label="Criticità" value={c.criticita.length} color={c.criticita.length>0?T.red:T.green} alert={c.criticita.length>0} onClick={()=>openModal('criticita',c)} />
+        <KPICard label="Criticità" value={(c.criticita||[]).length} color={(c.criticita||[]).length>0?T.red:T.green} alert={(c.criticita||[]).length>0} onClick={()=>openModal('criticita',c)} />
       </div>
 
       {/* SAL + Fatturato progress – logica corretta */}
@@ -1035,9 +1031,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal})=>{
       </Card>
 
       {/* Criticità */}
-      {c.criticita.length>0&&(
+      {(c.criticita||[]).length>0&&(
         <div style={{background:T.redL,border:`1px solid #fca5a5`,borderRadius:8,padding:12,marginBottom:18}}>
-          {c.criticita.map((cr,i)=><div key={i} style={{fontSize:13,color:T.red,display:'flex',gap:6,marginBottom:i<c.criticita.length-1?4:0}}><span>⚠</span>{cr}</div>)}
+          {(c.criticita||[]).map((cr,i)=><div key={i} style={{fontSize:13,color:T.red,display:'flex',gap:6,marginBottom:i<(c.criticita||[]).length-1?4:0}}><span>⚠</span>{cr}</div>)}
         </div>
       )}
 
@@ -1326,7 +1322,7 @@ const PageFattureAttive = ({onNav,openModal})=>{
         </div>
         <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr',gap:10}}>
           <FilterField label="Cerca (numero, cliente, commessa)">
-            <input value={filtTxt} onChange={e=>setFiltTxt(e.target.value)} placeholder="es. FT2024, Sanlorenzo, C167..." style={inputSt}/>
+            <input value={filtTxt} onChange={e=>setFiltTxt(e.target.value)} placeholder="Cerca..." style={inputSt}/>
           </FilterField>
           <FilterField label="Data da">
             <input type="date" value={filtDa} onChange={e=>setFiltDa(e.target.value)} style={inputSt}/>
@@ -1497,7 +1493,7 @@ const PageFatturePassive = ({openModal})=>{
           </div>
           <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr',gap:10}}>
             <FilterField label="Cerca (fornitore, commessa, numero)">
-              <input value={filtTxt} onChange={e=>setFiltTxt(e.target.value)} placeholder="es. Boma, C167, FP-001..." style={inputSt}/>
+              <input value={filtTxt} onChange={e=>setFiltTxt(e.target.value)} placeholder="Cerca..." style={inputSt}/>
             </FilterField>
             <FilterField label="Data da">
               <input type="date" value={filtDa} onChange={e=>setFiltDa(e.target.value)} style={inputSt}/>
@@ -1783,7 +1779,7 @@ const PageRegoleEcon = ({selected})=>{
   };
 
   const scadenzeGenerate = ()=>{
-    const base=new Date('2024-03-07');
+    const base=new Date();
     if(pagMode==='50% 60gg + 50% 90gg') return [
       {data:new Date(base.getTime()+60*864e5).toLocaleDateString('it-IT'),perc:'50%',importo:fmt((item.importo||50000)*0.5)},
       {data:new Date(base.getTime()+90*864e5).toLocaleDateString('it-IT'),perc:'50%',importo:fmt((item.importo||50000)*0.5)},
@@ -2077,7 +2073,7 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
             ℹ️ <b>Extra</b>: può ereditare le regole della commessa madre oppure essere autonomo.
           </div>}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <LabeledField label="Codice *"><input value={codice} onChange={e=>setCodice(e.target.value)} placeholder="es. C210 / ORD-05 / E167-04" style={SI}/></LabeledField>
+            <LabeledField label="Codice *"><input value={codice} onChange={e=>setCodice(e.target.value)} placeholder="Codice commessa" style={SI}/></LabeledField>
             <LabeledField label="Cliente / Committente *">
               <select value={cliente} onChange={e=>setCliente(e.target.value)} style={SI}>
                 <option value="">— Seleziona —</option>
@@ -3516,7 +3512,7 @@ const PageAnagrafica = ({onDataChange})=>{
               </LabeledField>
             </div>
             <LabeledField label="Nome / Ragione sociale *">
-              <input value={fNome} onChange={e=>setFNome(e.target.value)} placeholder="es. Sanlorenzo Spa" style={SI}/>
+              <input value={fNome} onChange={e=>setFNome(e.target.value)} placeholder="Nome fornitore/cliente" style={SI}/>
             </LabeledField>
             <LabeledField label="Indirizzo / Sede legale">
               <input value={fInd} onChange={e=>setFInd(e.target.value)} placeholder="Via Roma 1, 19034 Luni SP" style={SI}/>
@@ -3792,7 +3788,7 @@ const PageFornitoriGen = ()=>{
           </div>
           <SectionTitle children="Storico fatture e movimenti"/>
           <Table headers={[{label:'Data'},{label:'Numero'},{label:'Importo',right:true},{label:'Scadenza'},{label:'Stato'}]}>
-            {sel.movimenti.map((m,i)=>(
+            {(sel.movimenti||[]).map((m,i)=>(
               <tr key={i}>
                 <Td>{fmtDate(m.data)}</Td>
                 <Td><span style={{fontFamily:'monospace',fontSize:11}}>{m.num}</span></Td>
@@ -3976,7 +3972,7 @@ const ModalContent = ({type,data,onClose})=>{
   );
 
   const ModalCrit = ()=>{
-    const allCrit=D.commesse.flatMap(c=>c.criticita.map(cr=>({commessa:c.codice,cliente:c.cliente,testo:cr})));
+    const allCrit=D.commesse.flatMap(c=>(c.criticita||[]).map(cr=>({commessa:c.codice,cliente:c.cliente,testo:cr})));
     return (
       <Modal title={`Criticità attive (${allCrit.length})`} onClose={onClose} width={650}>
         {allCrit.map((cr,i)=>(
@@ -3992,7 +3988,7 @@ const ModalContent = ({type,data,onClose})=>{
   const ModalNuovoSAL = ()=>(
     <Modal title="Nuovo SAL" onClose={onClose} width={550}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-        {[['Commessa','text','es. C167'],['Extra (facoltativo)','text','es. E167-01'],['Mese di riferimento','text','es. Gennaio 2024'],['Descrizione','text','SAL mensile'],['SAL lordo','number','100000'],['% recupero acconto','number','5'],['% garanzia','number','10']].map(([l,t,p])=>(
+        {[['Commessa','text','Codice commessa'],['Extra (facoltativo)','text','Codice extra'],['Mese di riferimento','text','Es. Gennaio 2026'],['Descrizione','text','SAL mensile'],['SAL lordo','number','0'],['% recupero acconto','number','5'],['% garanzia','number','10']].map(([l,t,p])=>(
           <div key={l} style={{gridColumn:l==='Descrizione'?'1 / -1':'auto'}}>
             <label style={{display:'block',fontSize:12,fontWeight:600,color:T.textL,marginBottom:4}}>{l}</label>
             <input type={t} placeholder={p} style={{width:'100%',border:`1px solid ${T.border}`,borderRadius:6,padding:'7px 10px',fontSize:13}}/>
@@ -4020,15 +4016,15 @@ const ModalContent = ({type,data,onClose})=>{
   const ModalNuovaComp = ()=>(
     <Modal title="Nuova compensazione manuale" onClose={onClose} width={500}>
       <div style={{display:'flex',flexDirection:'column',gap:12}}>
-        {[['Fattura passiva da compensare','FP167-001 – Boma – € 30.000'],['Fattura attiva da usare','FASUB-001 – € 8.000'],['Importo da compensare','€ 8.000'],['Bonifico residuo','€ 20.500']].map(([l,v])=>(
+        {[['Fattura passiva da compensare',''],['Fattura attiva da usare',''],['Importo da compensare',''],['Bonifico residuo','']].map(([l,v])=>(
           <div key={l}>
             <label style={{display:'block',fontSize:12,fontWeight:600,color:T.textL,marginBottom:4}}>{l}</label>
-            <input defaultValue={v} style={{width:'100%',border:`1px solid ${T.border}`,borderRadius:6,padding:'7px 10px',fontSize:13}}/>
+            <input defaultValue={v} placeholder={l} style={{width:'100%',border:`1px solid ${T.border}`,borderRadius:6,padding:'7px 10px',fontSize:13}}/>
           </div>
         ))}
         <div style={{background:T.blueL,borderRadius:8,padding:12}}>
           <div style={{fontSize:12,fontWeight:600,color:T.blue,marginBottom:6}}>Formula: Netto da pagare</div>
-          <div style={{fontSize:14}}><b>{fmt(30000)}</b> lordo − <span style={{color:T.amber}}>{fmt(1500)}</span> garanzia − <span style={{color:T.blue}}>{fmt(8000)}</span> comp. sub = <b style={{color:T.red}}>{fmt(20500)}</b> bonifico</div>
+          <div style={{fontSize:12,color:T.textL}}>Lordo − garanzia − compensazione subappaltatore = bonifico</div>
         </div>
       </div>
       <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:16}}>
@@ -4040,23 +4036,7 @@ const ModalContent = ({type,data,onClose})=>{
 
   const ModalAIComp = ()=>(
     <Modal title="🤖 Suggerimenti AI – Compensazioni" onClose={onClose} width={600}>
-      <div style={{color:T.textL,fontSize:13,marginBottom:16}}>L'AI ha analizzato tutte le posizioni aperte e suggerisce le seguenti compensazioni ottimali:</div>
-      {[{pass:'Boma – FP208-001 (€ 18.000)',att:'FASUB-005 – addebito sicurezza (€ 4.500)',comp:4500,bond:11700,motivo:'Stessa commessa (C208) + scadenza urgente in 5gg'},
-        {pass:'EuroLuce – FPBXL-001 (€ 42.000)',att:'FASUB-006 – addebito luci (€ 3.200)',comp:3200,bond:36700,motivo:'Stessa controparte + attiva disponibile'},
-      ].map((s,i)=>(
-        <div key={i} style={{border:`1px solid ${T.border}`,borderRadius:8,padding:14,marginBottom:12}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-            <div><div style={{fontWeight:600,fontSize:13}}>Compensazione #{i+1}</div><div style={{fontSize:11,color:T.textL,marginTop:2}}>{s.motivo}</div></div>
-            <Btn onClick={onClose} size='sm'>Applica</Btn>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,fontSize:12}}>
-            <div><span style={{color:T.textL}}>Passiva:</span> {s.pass}</div>
-            <div><span style={{color:T.textL}}>Attiva usata:</span> {s.att}</div>
-            <div><span style={{color:T.blue}}>Comp. applicata: </span><b>{fmt(s.comp)}</b></div>
-            <div><span style={{color:T.red}}>Bonifico residuo: </span><b>{fmt(s.bond)}</b></div>
-          </div>
-        </div>
-      ))}
+      <div style={{color:T.textL,fontSize:13,marginBottom:16}}>Nessun suggerimento disponibile. I suggerimenti compariranno automaticamente appena saranno presenti coppie di fatture attive e passive compensabili.</div>
     </Modal>
   );
 
@@ -4127,8 +4107,8 @@ const ModalContent = ({type,data,onClose})=>{
   const ModalFattMese = ()=>{
     const mese = data?.mese||'';
     const fatture = data?.fatture||[];
-    const mesiLabel={'2024-01':'Gennaio 2024','2024-02':'Febbraio 2024','2024-03':'Marzo 2024'};
-    const label = mesiLabel[mese]||mese;
+    const mesiNomi=['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+    const label = (()=>{ if(!mese) return ''; const [y,m]=mese.split('-'); const idx=parseInt(m,10)-1; return (mesiNomi[idx]||m)+' '+y; })();
     const totale = fatture.reduce((a,f)=>a+f.lordo,0);
     const totNetto = fatture.reduce((a,f)=>a+f.netto,0);
     const totGar = fatture.reduce((a,f)=>a+(f.garanzia||0),0);
@@ -4188,63 +4168,49 @@ const ModalContent = ({type,data,onClose})=>{
 /* ─── AI ASSISTANT ───────────────────────────────────────── */
 const AIPanel = ({onClose})=>{
   const [msgs,setMsgs]=useState([
-    {role:'ai',text:'Ciao! Sono il tuo assistente finanziario operativo. Chiedimi:\n• "Quanto devo pagare a Boma il 15?"\n• "Quante garanzie ha la 169?"\n• "Quali passive scadono questa settimana?"\n• "Quanto devo incassare da Sanlorenzo?"'}
+    {role:'ai',text:'Ciao! Sono il tuo assistente finanziario operativo. Chiedimi informazioni sulle fatture, scadenze, commesse, garanzie e acconti dei tuoi dati reali.'}
   ]);
   const [input,setInput]=useState('');
   const endRef=useRef(null);
 
   const aiAnswer = q=>{
     const ql=q.toLowerCase();
-    if(ql.includes('boma')&&(ql.includes('pagare')||ql.includes('pago')||ql.includes('pagamento'))){
-      const fp=D.fatturePassive.filter(f=>f.fornitore==='Boma');
-      const tot=fp.reduce((a,f)=>a+f.netto,0);
-      return `A Boma devi pagare complessivamente ${fmt(tot)} netto.\n\n${fp.map(f=>`• ${f.num} – Comm. ${f.commessa} – Scad. ${fmtDate(f.scadenza)} – Netto ${fmt(f.netto)} (lordo ${fmt(f.lordo)} − gar. ${fmt(f.garanzia)} − comp. ${fmt(f.compSub)})`).join('\n')}\n\nIl prossimo pagamento urgente è ${fmt(D.fatturePassive.find(f=>f.fornitore==='Boma'&&f.stato==='Urgente')?.netto||0)} entro il 12/03.`;
+    if(ql.includes('scadut')||(ql.includes('passiv')&&ql.includes('scad'))){
+      const pross=(D.scadenziario||[]).filter(s=>s.tipo==='Pagamento'&&(s.stato==='Urgente'||s.stato==='In scadenza')).sort((a,b)=>new Date(a.data)-new Date(b.data));
+      if(!pross.length) return 'Nessuna passiva in scadenza o urgente nel periodo corrente.';
+      return `Prossime passive in scadenza:\n\n${pross.map(s=>`• ${fmtDate(s.data)} – ${s.cp} – Comm. ${s.commessa||'—'} – ${fmt(s.importo)} – ${s.stato}${s.nota?'\n  ↳ '+s.nota:''}`).join('\n\n')}`;
     }
-    if(ql.includes('sanlorenzo')&&ql.includes('incass')){
-      const fa=D.fattureAttive.filter(f=>f.cliente==='Sanlorenzo'&&f.stato!=='Scaduta');
-      const tot=fa.reduce((a,f)=>a+f.netto,0);
-      const scad=D.fattureAttive.filter(f=>f.cliente==='Sanlorenzo'&&f.stato==='Scaduta');
-      return `Da Sanlorenzo devi ancora incassare ${fmt(tot)} netto (su fatture aperte).\n\n${fa.map(f=>`• ${f.num} – ${fmt(f.netto)} – Scad. ${fmtDate(f.scadenza)} – ${f.stato}`).join('\n')}\n\n⚠ ATTENZIONE: c'è anche ${fmt(scad.reduce((a,f)=>a+f.netto,0))} di fatture SCADUTE (${scad.map(f=>f.num).join(', ')}).`;
+    if(ql.includes('incass')){
+      const aperte=(D.fattureAttive||[]).filter(f=>f.stato!=='Incassata');
+      const tot=aperte.reduce((a,f)=>a+(f.netto||0),0);
+      const scad=aperte.filter(f=>f.stato==='Scaduta');
+      if(!aperte.length) return 'Nessuna fattura attiva aperta.';
+      return `Fatture attive aperte: ${aperte.length} per un totale di ${fmt(tot)} netto.${scad.length?`\n\n⚠ Di cui ${scad.length} SCADUTE per ${fmt(scad.reduce((a,f)=>a+(f.netto||0),0))}.`:''}`;
     }
-    if((ql.includes('garanzi')&&ql.includes('169'))){
-      const c=D.commesse.find(c=>c.codice==='169');
-      return `Garanzie della commessa 169:\n• Garanzia attiva: ${fmt(c?.garanzia?.residuo||0)} (${c?.garanzia?.perc}% su fatturato)\n• Condizione svincolo: ${c?.garanzia?.cond}\n• Data svincolo prevista: ${fmtDate(c?.garanzia?.svincolo)}\n• Stato: ${c?.garanzia?.stato}\n\nLa garanzia abbatte ogni incasso: su ogni fattura emessa il ${c?.garanzia?.perc}% viene trattenuto fino allo svincolo.`;
+    if(ql.includes('pagar')||ql.includes('pago')){
+      const fp=(D.fatturePassive||[]).filter(f=>f.stato!=='Pagata');
+      const tot=fp.reduce((a,f)=>a+(f.netto||0),0);
+      if(!fp.length) return 'Nessuna fattura passiva aperta.';
+      return `Fatture passive da pagare: ${fp.length} per un totale di ${fmt(tot)} netto.`;
     }
-    if(ql.includes('167')&&ql.includes('extra')){
-      const ex=D.extra.filter(e=>e.commessa==='C167');
-      return `Extra della commessa 167 (${ex.length} totali):\n\n${ex.map(e=>`• ${e.codice} – ${e.desc} – ${fmt(e.importo)} – Stato: ${e.stato}`).join('\n')}\n\nTotale extra 167: ${fmt(ex.reduce((a,e)=>a+e.importo,0))}\nFatturato: ${fmt(ex.reduce((a,e)=>a+e.fatturato,0))}\n\n⚠ E167-02 e E167-03 non sono configurati correttamente (mancano regole economiche).`;
+    if(ql.includes('commess')){
+      const att=(D.commesse||[]).filter(c=>c.stato==='Attiva');
+      if(!att.length) return 'Nessuna commessa attiva al momento.';
+      return `Commesse attive: ${att.length}.\n\n${att.slice(0,10).map(c=>`• ${c.codice} – ${c.nome||''} – ${c.cliente||''}`).join('\n')}`;
     }
-    if(ql.includes('passive')&&(ql.includes('scad'))){
-      const pross=D.scadenziario.filter(s=>s.tipo==='Pagamento'&&(s.stato==='Urgente'||s.stato==='In scadenza')).sort((a,b)=>new Date(a.data)-new Date(b.data));
-      return `Prossime passive in scadenza:\n\n${pross.map(s=>`• ${fmtDate(s.data)} – ${s.cp} – Comm. ${s.commessa||'—'} – ${fmt(s.importo)} – ${s.stato}${s.nota?'\n  ↳ '+s.nota:''}`).join('\n\n')}\n\nPagamento più urgente: ${fmt(pross[0]?.importo||0)} a ${pross[0]?.cp} il ${fmtDate(pross[0]?.data)}.`;
+    if(ql.includes('garanzi')){
+      const g=(D.garanzie||[]).filter(g=>g.tipo==='Attiva');
+      const tot=g.reduce((a,g)=>a+(g.residuo||0),0);
+      if(!g.length) return 'Nessuna garanzia attiva registrata.';
+      return `Garanzie attive totali: ${fmt(tot)} (${g.length} posizioni).`;
     }
-    if(ql.includes('acconto')&&ql.includes('bmp')){
-      const acc=D.acconti.find(a=>a.commessa==='BMP501');
-      return `Acconto della commessa BMP501 (Brambilla Trasporti):\n• Importo acconto: ${fmt(acc?.importo||0)}\n• Recuperato finora: ${fmt(acc?.recuperato||0)}\n• Residuo da recuperare: ${fmt(acc?.residuo||0)}\n• Regola: ${acc?.regola}\n• Stato: ${acc?.stato}`;
+    if(ql.includes('accont')){
+      const acc=(D.acconti||[]);
+      const tot=acc.reduce((a,ac)=>a+(ac.residuo||0),0);
+      if(!acc.length) return 'Nessun acconto registrato.';
+      return `Acconti: residuo da recuperare ${fmt(tot)} su ${acc.length} posizioni.`;
     }
-    if(ql.includes('elettric')||ql.includes('enel')){
-      const enel=D.fornitoriGenerici.find(f=>f.nome.includes('Enel'));
-      const pagMese=enel?.movimenti?.filter(m=>m.stato==='Pagata')?.reduce((a,m)=>a+m.importo,0)||0;
-      return `Costi Enel Energia:\n• Aperto attuale: ${fmt(enel?.aperto||0)} (fattura ${enel?.movimenti[0]?.num})\n• Pagato negli ultimi mesi: ${fmt(pagMese)}\n• Prossima scadenza: ${fmtDate(enel?.nextSc)}\n• Note: ${enel?.note}\n\nUltimi movimenti:\n${enel?.movimenti?.map(m=>`• ${fmtDate(m.data)} – ${m.num} – ${fmt(m.importo)} – ${m.stato}`).join('\n')}`;
-    }
-    if(ql.includes('tecnoimpianti')&&ql.includes('pagare')){
-      const fp=D.fatturePassive.filter(f=>f.fornitore==='TecnoImpianti 2000');
-      const tot=fp.reduce((a,f)=>a+f.netto,0);
-      return `A TecnoImpianti 2000 devi pagare ${fmt(tot)} netto.\n\n${fp.map(f=>`• ${f.num} – Comm. ${f.commessa} – Scad. ${fmtDate(f.scadenza)} – Netto ${fmt(f.netto)}\n  Formula: ${fmt(f.lordo)} − ${fmt(f.garanzia)} gar. − ${fmt(f.compSub)} comp. = ${fmt(f.netto)}`).join('\n\n')}`;
-    }
-    if(ql.includes('compensaz')&&(ql.includes('bianchi')||ql.includes('c169'))){
-      const attSub=D.attiveSub.filter(f=>f.commessa==='C169');
-      return `Attive verso sub utilizzabili in compensazione con la commessa C169 (Bianchi Costruzioni):\n\n${attSub.map(f=>`• ${f.num} – ${f.sub} – ${fmt(f.importo)} – ${f.stato}\n  ${f.note}`).join('\n\n')}\n\nTotale compensabile: ${fmt(attSub.filter(f=>f.stato!=='Usata').reduce((a,f)=>a+f.importo,0))}`;
-    }
-    if(ql.includes('167')&&(ql.includes('importo')||ql.includes("quant'è"))){
-      const c=D.commesse.find(c=>c.codice==='167');
-      return `Importo commessa 167 (Sanlorenzo – Impianti Elettrici Pad.A):\n• Contratto: ${fmt(c?.importoContrattuale)}\n• SAL produttivo: ${fmt(c?.salProdAttivoTot)} (${Math.round((c?.salProdAttivoTot/c?.importoContrattuale)*100)}% del contratto)\n• Fatturato: ${fmt(c?.fatturato)}\n• Incassato: ${fmt(c?.incassato)}\n• Da incassare netto: ${fmt(D.fattureAttive.filter(f=>f.commessa==='C167').reduce((a,f)=>a+f.netto,0))}`;
-    }
-    if(ql.includes('169')&&(ql.includes('punto')||ql.includes('totale'))){
-      const c=D.commesse.find(c=>c.codice==='169');
-      return `Situazione commessa 169 (Bianchi Costruzioni – HVAC Edificio B):\n• Contratto: ${fmt(c?.importoContrattuale)}\n• SAL produttivo attivo: ${fmt(c?.salProdAttivoTot)} (${Math.round((c?.salProdAttivoTot/c?.importoContrattuale)*100)}%)\n• Fatturato: ${fmt(c?.fatturato)}\n• Incassato: ${fmt(c?.incassato)}\n• Acconto residuo: ${fmt(c?.acconto?.residuo)} (recuperato ${fmt(c?.acconto?.recuperato)} di ${fmt(c?.acconto?.importo)})\n• Garanzia trattenuta: ${fmt(c?.garanzia?.residuo)} (${c?.garanzia?.perc}%)`;
-    }
-    return `Non ho trovato una risposta precisa a questa domanda nel database corrente.\n\nPuoi chiedermi:\n• Quanto devo pagare a [Boma/TecnoImpianti 2000/...]\n• Quanto incasso da [Sanlorenzo/Bianchi/...]\n• Garanzie della [167/169/BXL1]\n• Extra della [167]\n• Acconto della [BMP501]\n• Fatture passive in scadenza\n• Costi Enel questo mese`;
+    return 'Non ho trovato una risposta precisa a questa domanda nel database corrente.\n\nPuoi chiedermi:\n• Fatture in scadenza o scadute\n• Quanto incassare / pagare\n• Commesse attive\n• Garanzie o acconti';
   };
 
   const send = ()=>{
@@ -4258,7 +4224,7 @@ const AIPanel = ({onClose})=>{
     },600);
   };
 
-  const quick=['Quanto devo pagare a Boma il 15?','Quante garanzie ha la 169?','Quali passive scadono questa settimana?','Quanto incasso da Sanlorenzo?','Quanto abbiamo pagato di elettricità?'];
+  const quick=['Fatture in scadenza','Quanto devo incassare','Quanto devo pagare','Commesse attive','Garanzie','Acconti'];
 
   return (
     <div style={{position:'fixed',right:0,top:0,bottom:0,width:380,background:T.white,boxShadow:'-4px 0 20px rgba(0,0,0,.12)',display:'flex',flexDirection:'column',zIndex:500}}>
@@ -4292,16 +4258,14 @@ const AIPanel = ({onClose})=>{
 /* ─── PAGE: GESTIONE SAL ────────────────────────────────── */
 const PageSAL = ()=>{
   const [tabSAL,setTabSAL]=useState('attivi');  // 'attivi' | 'passivi'
-  const [meseSel,setMeseSel]=useState('2024-03');
+  const [meseSel,setMeseSel]=useState(new Date().toISOString().slice(0,7));
   const [showForm,setShowForm]=useState(false);
   // Nuovo SAL form
   const [salCommessa,setSalCommessa]=useState('');
   const [salPct,setSalPct]=useState('');
   const [salDesc,setSalDesc]=useState('');
-  const mesiDisp=[
-    {val:'2024-01',label:'Gennaio 2024'},{val:'2024-02',label:'Febbraio 2024'},
-    {val:'2024-03',label:'Marzo 2024'},{val:'2024-04',label:'Aprile 2024'},
-  ];
+  const mesiNomi=['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const mesiDisp=(()=>{ const now=new Date(); const arr=[]; for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const val=d.toISOString().slice(0,7); arr.push({val,label:mesiNomi[d.getMonth()]+' '+d.getFullYear()}); } return arr; })();
 
   // SAL già registrati per il mese selezionato (attivi)
   const meseLabel = mesiDisp.find(m=>m.val===meseSel)?.label||meseSel;
