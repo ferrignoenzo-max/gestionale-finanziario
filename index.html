@@ -1646,7 +1646,7 @@ const PageFattureAttive = ({onNav,openModal})=>{
                         </span>
                       </Td>
                       <Td>{f.cliente}</Td>
-                      <Td><span style={{background:'#eff6ff',color:'#2563eb',padding:'2px 7px',borderRadius:4,fontSize:11,fontWeight:600}}>{f.commessa}</span></Td>
+                      <Td><span style={{background:'#eff6ff',color:'#2563eb',padding:'2px 7px',borderRadius:4,fontSize:11,fontWeight:600}}>{f.commessaCodice||f.commessa||''}</span></Td>
                       <Td><Badge text={f.tipo}/></Td>
                       <Td right>{fmt(f.lordo)}</Td>
                       <Td right color={T.amber}>{(f.garanzia||0)>0?fmt(f.garanzia):'—'}</Td>
@@ -1792,7 +1792,7 @@ const PageFatturePassive = ({openModal})=>{
                     onClick={()=>setExpanded(expanded===f.id?null:f.id)}>
                     <Td><Badge text={f.tipo}/></Td>
                     <Td bold>{f.fornitore}</Td>
-                    <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 6px',borderRadius:4,fontSize:11}}>{f.commessa}</span></Td>
+                    <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 6px',borderRadius:4,fontSize:11}}>{f.commessaCodice||f.commessa||''}</span></Td>
                     <Td nowrap>{f.num}</Td>
                     <Td nowrap color={f.stato==='Urgente'?T.red:T.text}>{fmtDate(f.scadenza)}</Td>
                     <Td right>{fmt(f.lordo)}</Td>
@@ -1856,7 +1856,7 @@ const PageAttiveSub = ({openModal})=>{
           {D.attiveSub.map(f=>(
             <tr key={f.id} style={{background:f.stato==='Disponibile'?T.greenL:'transparent'}}>
               <Td bold>{f.num}</Td><Td>{fmtDate(f.data)}</Td>
-              <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 6px',borderRadius:4,fontSize:11}}>{f.commessa}</span></Td>
+              <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 6px',borderRadius:4,fontSize:11}}>{f.commessaCodice||f.commessa||''}</span></Td>
               <Td>{f.sub}</Td>
               <Td right bold color={f.stato==='Disponibile'?T.green:T.textL}>{fmt(f.importo)}</Td>
               <Td><Badge text={f.stato}/></Td>
@@ -2662,10 +2662,10 @@ const PageGaranzieAcconti = ({openModal})=>{
   const fattAperteNetto = D.fattureAttive.filter(f=>f.stato!=='Incassata').reduce((a,f)=>a+(f.netto||0),0);
 
   // ── Filtri per trattenute attive ──────────────────────────
-  const commUni=[...new Set(garPerFattAtt.map(f=>f.commessa))].sort();
+  const commUni=[...new Set(garPerFattAtt.map(f=>f.commessaCodice||f.commessa).filter(Boolean))].sort();
   const cliUni =[...new Set(garPerFattAtt.map(f=>f.cliente))].sort();
   const filtAtt=garPerFattAtt.filter(f=>{
-    if(filtComm && f.commessa!==filtComm) return false;
+    if(filtComm && (f.commessaCodice||f.commessa)!==filtComm) return false;
     if(filtCli  && f.cliente!==filtCli)   return false;
     if(filtStatoAtt && f.stato!==filtStatoAtt) return false;
     return true;
@@ -2735,7 +2735,7 @@ const PageGaranzieAcconti = ({openModal})=>{
               {filtAtt.map(f=>(
                 <tr key={f.id} style={{background:f.stato==='Incassata'?T.greenL:'transparent'}}>
                   <Td><span style={{fontFamily:'monospace',fontSize:11}}>{f.num}</span></Td>
-                  <Td bold>{f.commessa}</Td>
+                  <Td bold>{f.commessaCodice||f.commessa||''}</Td>
                   <Td>{f.cliente}</Td>
                   <Td><Badge text={f.tipo}/></Td>
                   <Td nowrap>{fmtDate(f.data)}</Td>
@@ -2786,11 +2786,12 @@ const PageGaranzieAcconti = ({openModal})=>{
               // Raggruppa per commessa
               const byComm={};
               sub.fatture.forEach(f=>{
-                if(!byComm[f.commessa]) byComm[f.commessa]={commessa:f.commessa,fatture:[],totGar:0,totRes:0,totSvinc:0};
-                byComm[f.commessa].fatture.push(f);
-                byComm[f.commessa].totGar+=f.garanzia||0;
-                byComm[f.commessa].totRes+=f.garResiduo;
-                byComm[f.commessa].totSvinc+=(f.garanzia||0)-f.garResiduo;
+                const ck=f.commessaCodice||f.commessa||'—';
+                if(!byComm[ck]) byComm[ck]={commessa:ck,fatture:[],totGar:0,totRes:0,totSvinc:0};
+                byComm[ck].fatture.push(f);
+                byComm[ck].totGar+=f.garanzia||0;
+                byComm[ck].totRes+=f.garResiduo;
+                byComm[ck].totSvinc+=(f.garanzia||0)-f.garResiduo;
               });
               const commList=Object.values(byComm).sort((a,b)=>b.totRes-a.totRes);
               return (
@@ -3151,7 +3152,7 @@ const PageSubappaltatori = ({onNav})=>{
   const compSub = D.compensazioni.filter(c=>c.direzione==='noi→sub');
 
   const nomiUnici   = [...new Set(fpSub.map(f=>f.fornitore))].sort();
-  const commUnici   = [...new Set(fpSub.map(f=>f.commessa))].sort();
+  const commUnici   = [...new Set(fpSub.map(f=>f.commessaCodice||f.commessa).filter(Boolean))].sort();
   const statiUnici  = [...new Set(fpSub.map(f=>f.stato))].sort();
 
   // ── Tab Fatture Passive ────────────────────────────────────
@@ -3161,7 +3162,7 @@ const PageSubappaltatori = ({onNav})=>{
 
   const filtratiFP = baseFP.filter(f=>{
     if(filtNome&&!f.fornitore.toLowerCase().includes(filtNome.toLowerCase())) return false;
-    if(filtCommessa&&f.commessa!==filtCommessa) return false;
+    if(filtCommessa&&(f.commessaCodice||f.commessa)!==filtCommessa) return false;
     if(filtDa&&f.data<filtDa) return false;
     if(filtA&&f.data>filtA) return false;
     if(filtImpMin&&f.lordo<parseFloat(filtImpMin)) return false;
@@ -3312,7 +3313,7 @@ const PageSubappaltatori = ({onNav})=>{
                     style={{cursor:'pointer',background:scaduta?'rgba(220,38,38,.04)':urgente?'rgba(217,119,6,.04)':isExp?'#f8fafc':'transparent'}}>
                     <Td>{i+1}</Td>
                     <Td bold>{f.fornitore}</Td>
-                    <Td><span style={{fontFamily:'monospace',fontSize:11,background:'#f1f5f9',padding:'1px 6px',borderRadius:4}}>{f.commessa}</span></Td>
+                    <Td><span style={{fontFamily:'monospace',fontSize:11,background:'#f1f5f9',padding:'1px 6px',borderRadius:4}}>{f.commessaCodice||f.commessa||''}</span></Td>
                     <Td><span style={{fontFamily:'monospace',fontSize:11}}>{f.num}</span></Td>
                     <Td nowrap>{fmtDate(f.data)}</Td>
                     <Td nowrap>
@@ -3368,12 +3369,13 @@ const PageSubappaltatori = ({onNav})=>{
             const byComm={};
             sub.fatture.forEach(f=>{
               const isChiusaF=f.stato==='Pagata'||f.stato==='Chiusa';
-              if(!byComm[f.commessa]) byComm[f.commessa]={commessa:f.commessa,fatture:[],totGar:0,totRes:0,totSvinc:0,nettoAp:0};
-              byComm[f.commessa].fatture.push(f);
-              byComm[f.commessa].totGar+=f.garanzia||0;
-              byComm[f.commessa].totRes+=f.garResiduo;
-              byComm[f.commessa].totSvinc+=f.garSvincolata;
-              byComm[f.commessa].nettoAp+=isChiusaF?0:f.netto;
+              const ck=f.commessaCodice||f.commessa||'—';
+              if(!byComm[ck]) byComm[ck]={commessa:ck,fatture:[],totGar:0,totRes:0,totSvinc:0,nettoAp:0};
+              byComm[ck].fatture.push(f);
+              byComm[ck].totGar+=f.garanzia||0;
+              byComm[ck].totRes+=f.garResiduo;
+              byComm[ck].totSvinc+=f.garSvincolata;
+              byComm[ck].nettoAp+=isChiusaF?0:f.netto;
             });
             const commList=Object.values(byComm).sort((a,b)=>b.totRes-a.totRes);
             const totaleResiduo = sub.nettoAperto + sub.totResiduo;
@@ -4152,7 +4154,7 @@ const ModalContent = ({type,data,onClose})=>{
         {D.fattureAttive.map(f=>(
           <tr key={f.id} style={{background:f.stato==='Scaduta'?'#fff5f5':'transparent'}}>
             <Td bold>{f.num}</Td><Td>{f.cliente}</Td>
-            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessa}</span></Td>
+            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice||f.commessa||''}</span></Td>
             <Td nowrap color={f.stato==='Scaduta'?T.red:T.text}>{fmtDate(f.scadenza)}</Td>
             <Td right>{fmt(f.lordo)}</Td>
             <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
@@ -4175,7 +4177,7 @@ const ModalContent = ({type,data,onClose})=>{
         {D.fatturePassive.map(f=>(
           <tr key={f.id} style={{background:f.stato==='Urgente'?'#fffbeb':'transparent'}}>
             <Td bold>{f.fornitore}</Td>
-            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessa}</span></Td>
+            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice||f.commessa||''}</span></Td>
             <Td right>{fmt(f.lordo)}</Td>
             <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
             <Td right color={T.blue}>{fmt(f.compSub)}</Td>
@@ -4337,7 +4339,7 @@ const ModalContent = ({type,data,onClose})=>{
         {D.fattureAttive.filter(f=>f.stato==='Scaduta').map(f=>(
           <tr key={f.id} style={{background:T.redL}}>
             <Td bold>{f.num}</Td><Td>{f.cliente}</Td>
-            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessa}</span></Td>
+            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice||f.commessa||''}</span></Td>
             <Td nowrap color={T.red}>{fmtDate(f.scadenza)}</Td>
             <Td right bold color={T.red}>{fmt(f.netto)}</Td>
             <Td color={T.red}>{f.note}</Td>
@@ -4403,7 +4405,7 @@ const ModalContent = ({type,data,onClose})=>{
               <tr key={f.id}>
                 <Td bold><span style={{color:T.blue,fontWeight:700}}>{f.num}</span></Td>
                 <Td>{f.cliente}</Td>
-                <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10,fontWeight:600}}>{f.commessa}</span></Td>
+                <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10,fontWeight:600}}>{f.commessaCodice||f.commessa||''}</span></Td>
                 <Td nowrap>{fmtDate(f.data)}</Td>
                 <Td><span style={{fontSize:11,color:T.textL}}>{f.tipo||'SAL'}</span></Td>
                 <Td right bold color={T.green}>{fmt(f.lordo)}</Td>
@@ -4668,7 +4670,7 @@ const PageSAL = ()=>{
               {D.fatturePassive.map(f=>(
                 <tr key={f.id}>
                   <Td bold>{f.fornitore}</Td>
-                  <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 6px',borderRadius:4,fontSize:11}}>{f.commessa}</span></Td>
+                  <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 6px',borderRadius:4,fontSize:11}}>{f.commessaCodice||f.commessa||''}</span></Td>
                   <Td nowrap><span style={{fontFamily:'monospace',fontSize:11}}>{f.num}</span></Td>
                   <Td right>{fmt(f.lordo)}</Td>
                   <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
@@ -5010,9 +5012,9 @@ const PageReport = ({onReset})=>{
       csv+='=== DATI BASE ===\n';
       csv+=`Codice,${c.codice}\nNome,${c.nome}\nCliente,${c.cliente}\nTipo,${c.tipoLavoro}\nImporto contrattuale,${c.importoContrattuale}\nStato,${c.stato}\nData inizio,${c.dataInizio||''}\nData fine,${c.dataFine||''}\n\n`;
       csv+='=== FATTURE ATTIVE ===\nNumero,Cliente,Commessa,Data,Lordo,Garanzia,Netto,Stato\n';
-      payload.fattureAttive.forEach(f=>csv+=`${f.num},${f.cliente},${f.commessa},${f.data||''},${f.lordo},${f.garanzia||0},${f.netto},${f.stato}\n`);
+      payload.fattureAttive.forEach(f=>csv+=`${f.num},${f.cliente},${f.commessaCodice||f.commessa||''},${f.data||''},${f.lordo},${f.garanzia||0},${f.netto},${f.stato}\n`);
       csv+='\n=== FATTURE PASSIVE ===\nNumero,Fornitore,Commessa,Data,Lordo,Garanzia,Netto,Stato\n';
-      payload.fatturePassive.forEach(f=>csv+=`${f.num},${f.fornitore||''},${f.commessa},${f.data||''},${f.lordo},${f.garanzia||0},${f.netto||0},${f.stato}\n`);
+      payload.fatturePassive.forEach(f=>csv+=`${f.num},${f.fornitore||''},${f.commessaCodice||f.commessa||''},${f.data||''},${f.lordo},${f.garanzia||0},${f.netto||0},${f.stato}\n`);
       csv+='\n=== SCADENZARIO ===\nData,Tipo,Controparte,Importo,Stato,Regola\n';
       payload.scadenziario.forEach(s=>csv+=`${s.data},${s.tipo},${s.cp},${s.importo},${s.stato},${s.regola||''}\n`);
       const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
