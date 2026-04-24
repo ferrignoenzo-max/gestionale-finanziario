@@ -107,25 +107,116 @@ const SB_H_WRITE = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content
      [C167/DL]       → commessa C167, direzione lavori
    Case-insensitive. Se l'oggetto contiene più codici prende il primo.
 */
-const RE_CODICE = /\[\s*([A-Z]\d+)\s*\/\s*(SAL\d+|ACC|COLL|DL|E\d+(?:-\d+)?(?:\/SAL\d+)?)\s*\]/i;
+/* Pattern #0 (priorità alta): bracket notation per commesse create manualmente.
+   Es: [C167/SAL2], [C167/ACC], [C167/E12-3/SAL2], [C167/COLL], [C167/DL] */
+const RE_BRACKET = /\[\s*([A-Z]\d+)\s*\/\s*(SAL\d+|ACC|COLL|DL|E\d+(?:-\d+)?(?:\/SAL\d+)?)\s*\]/i;
+
+/* Pattern #1 — TISG / The Italian Sea Group
+   Casi gestiti:
+     "COMM 617 - ORDINE N. ORCA/2025/00511"      (numerico puro)
+     "COMM 600/606 - ORDINE N. ORFO/2025/01733"  (commessa multi)
+     "COMM 604 - ORDINE ORFO/2025/03331"         (senza "N.")
+     "COMM 602 - ORDINE N.ORFO/2025/00949"       (no spazio dopo N.)
+     "COMM C. 598 - ORDINE N ORFO/..."           (prefisso ruolo C.)
+     "COMM G-602 - ORDINE ..."                   (prefisso ruolo G-)
+     "COMM GAR 602 - ORDINE ..."                 (prefisso ruolo GAR)
+     "COMM MARAYAH - ORDINE ..."                 (commessa con nome)
+     "COMM MY13705 - ORDINE ..."                 (alfanumerico)
+     "COMM R21C2303 - ORDINE ..."                (alfanumerico)  */
+const RE_TISG_OUTER = /\bCOMM\.?\s+(.+?)(?:\s*[-—]\s*ORDINE|$)/i;
+const RE_TISG_PREFIX = /^(?:C|G|GAR|R)[.\-\s]+/i;
+const RE_TISG_TOKEN = /^([A-Z0-9][A-Z0-9\-/.]*)/i;
+const RE_TISG_ORDINE = /ORDINE\s+N?\.?\s*([A-Z]+)[\s/]+(\d{4})[\s/]+(\d+)/i;
+
+/* Pattern #2 — Azimut-Benetti
+   Es: "BXL002 ORDINE MYOA25004795/APP"
+       "BMP501 ORDINE MYOA24015011/APP"
+       "BX107 BAP ORDINE MYOA25024650"
+       "BX103 AFS" / "BX105 EXTRA" / "BL000 ORDINE MYOA25006923/INV" */
+const RE_AZIMUT = /\b(B[A-Z]{1,3}\d{3}[A-Z]?)\b(?:\s+(?:BAP\s+)?(?:ORDINE\s+N?\.?\s*([A-Z0-9/]+))?)?/i;
+
+/* Pattern #3 — Sanlorenzo (formato lettere: SLA/SLM/XSP + codice/numero)
+   Es: "SLA044/169 ORDINE N 24OA08386"
+       "SLM052N/172 ORDINE N 23OA35223"
+       "XSP045/208 ORDINE 25OA37197"
+       "SLA44/163 - ORDINE N 22OA39743"  (senza zero iniziale) */
+const RE_SL_LETTER = /\b((?:SLA|SLM|XSP)\d{2,4}N?\s*\/\s*\d+)\b(?:[^A-Z0-9]*ORDINE\s+N?\.?\s*([A-Z0-9]+))?/i;
+
+/* Pattern #4 — Sanlorenzo (formato numerico puro: 5 cifre, eventualmente con N)
+   Es: "14952 ORDINE N 25OA14921"
+       "17252N ORDINE N 24OA37183"
+       "16144 - ORDINE N 22OA36272"
+       "COMM 16144 - ORDINE N 22OA42961"
+       "MY ABSOLUTELY 16144 - ORDINE N 25OA26183" */
+const RE_SL_NUM = /\b(\d{5}N?)\b(?:[^A-Z0-9]*ORDINE\s+N?\.?\s*([A-Z0-9]+))?/i;
+
+/* Normalizza il codice commessa: uppercase, rimuove spazi interni per /. */
+const normCodice = (s)=> String(s||'').toUpperCase().replace(/\s+/g,'');
+
 const parseCodiceCommessa = (oggetto)=>{
   if(!oggetto) return null;
-  const m = String(oggetto).match(RE_CODICE);
-  if(!m) return null;
-  const codice = m[1].toUpperCase();
-  const riferimento = m[2].toUpperCase();
-  let tipo='SAL', salNum=null, extraId=null;
-  if(riferimento.startsWith('SAL')) { tipo='SAL'; salNum=parseInt(riferimento.slice(3))||null; }
-  else if(riferimento==='ACC') { tipo='Acconto'; }
-  else if(riferimento==='COLL') { tipo='Collaudo'; }
-  else if(riferimento==='DL') { tipo='DL'; }
-  else if(riferimento.startsWith('E')) {
-    tipo='Extra';
-    const parts = riferimento.split('/');
-    extraId = parts[0];
-    if(parts[1]&&parts[1].startsWith('SAL')) salNum=parseInt(parts[1].slice(3))||null;
+  const s = String(oggetto);
+
+  // #0 bracket — retro-compatibile con commesse generate manualmente
+  const mB = s.match(RE_BRACKET);
+  if(mB) {
+    const codice = mB[1].toUpperCase();
+    const rif = mB[2].toUpperCase();
+    let tipo='SAL', salNum=null, extraId=null;
+    if(rif.startsWith('SAL')) { tipo='SAL'; salNum=parseInt(rif.slice(3))||null; }
+    else if(rif==='ACC') tipo='Acconto';
+    else if(rif==='COLL') tipo='Collaudo';
+    else if(rif==='DL') tipo='DL';
+    else if(rif.startsWith('E')) {
+      tipo='Extra';
+      const parts = rif.split('/');
+      extraId = parts[0];
+      if(parts[1]&&parts[1].startsWith('SAL')) salNum=parseInt(parts[1].slice(3))||null;
+    }
+    return { codice, tipo, salNum, extraId, raw: mB[0], ordine: null, cliente: 'BRACKET' };
   }
-  return { codice, tipo, salNum, extraId, raw: m[0] };
+
+  // #1 TISG — estrae la parte fra "COMM " e "- ORDINE", poi rimuove i
+  // prefissi ruolo (C./G./GAR/R.) e prende il primo token come codice.
+  const mT = s.match(RE_TISG_OUTER);
+  if(mT) {
+    let codPart = mT[1].toUpperCase().trim().replace(RE_TISG_PREFIX,'');
+    const tok = codPart.match(RE_TISG_TOKEN);
+    if(tok) {
+      const codMulti = tok[1].replace(/\s+/g,'');
+      const codice = codMulti.split('/')[0];
+      const mOrd = s.match(RE_TISG_ORDINE);
+      const ordine = mOrd ? `${mOrd[1].toUpperCase()}/${mOrd[2]}/${mOrd[3]}` : null;
+      return { codice, tipo:'SAL', salNum:null, extraId:null, raw: mT[0],
+               ordine, cliente:'TISG', codiceMulti: codMulti.indexOf('/')>=0 ? codMulti : null };
+    }
+  }
+
+  // #2 Azimut — priorità su #3/#4 per evitare falsi positivi con "BXL001"
+  const mA = s.match(RE_AZIMUT);
+  if(mA) {
+    const codice = normCodice(mA[1]);
+    const ordine = mA[2] ? normCodice(mA[2]) : null;
+    return { codice, tipo:'SAL', salNum:null, extraId:null, raw: mA[0], ordine, cliente:'AZIMUT' };
+  }
+
+  // #3 Sanlorenzo lettere
+  const mSl = s.match(RE_SL_LETTER);
+  if(mSl) {
+    const codice = normCodice(mSl[1]);
+    const ordine = mSl[2] ? normCodice(mSl[2]) : null;
+    return { codice, tipo:'SAL', salNum:null, extraId:null, raw: mSl[0], ordine, cliente:'SANLORENZO' };
+  }
+
+  // #4 Sanlorenzo numerico (fallback)
+  const mSn = s.match(RE_SL_NUM);
+  if(mSn) {
+    const codice = normCodice(mSn[1]);
+    const ordine = mSn[2] ? normCodice(mSn[2]) : null;
+    return { codice, tipo:'SAL', salNum:null, extraId:null, raw: mSn[0], ordine, cliente:'SANLORENZO' };
+  }
+
+  return null;
 };
 
 /* Calcola garanzia dinamicamente dalla config commessa */
@@ -147,10 +238,11 @@ const calcolaGaranzia = (fattura, commessa)=>{
   return 0;
 };
 
-/* Link dinamico: applica parser su ogni fattura e aggancia a commessa se esiste */
+/* Link dinamico: applica parser su ogni fattura e aggancia a commessa se esiste.
+   La corrispondenza è sul campo commesse.codice (case-insensitive, normalizzato).  */
 const linkFatture = ()=>{
   const byCode = new Map();
-  D.commesse.forEach(c=>{ if(c.codice) byCode.set(String(c.codice).toUpperCase(), c); });
+  D.commesse.forEach(c=>{ if(c.codice) byCode.set(normCodice(c.codice), c); });
   const applyOn = (arr)=>{
     arr.forEach(f=>{
       const parsed = parseCodiceCommessa(f.oggetto);
@@ -160,10 +252,13 @@ const linkFatture = ()=>{
         f.tipoRif = parsed.tipo;
         f.salNum = parsed.salNum;
         f.extraId = parsed.extraId;
+        f.ordine = parsed.ordine||null;
+        f.codiceMulti = parsed.codiceMulti||null;
         if(c) {
           f.commessa = c.id;
           f.commessaCodice = c.codice;
           f.sal = parsed.salNum;
+          f.statoLink = 'Assegnata';
           // ricalcolo garanzia dinamica
           f.garanzia = calcolaGaranzia(f, c);
           f.netto = Math.max(0, (f.lordo||0) - (f.garanzia||0) - (f.compGen||0) - (f.compSub||0));
@@ -178,6 +273,8 @@ const linkFatture = ()=>{
         f.commessaCodice = null;
         f.tipoRif = null;
         f.salNum = null;
+        f.ordine = null;
+        f.codiceMulti = null;
         f.statoLink = 'NonAssegnata';
       }
     });
