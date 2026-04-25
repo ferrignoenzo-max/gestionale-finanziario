@@ -4340,51 +4340,186 @@ const PagePrimaNota = ()=>{
 const ModalContent = ({type,data,onClose})=>{
   if(!type) return null;
 
-  const ModalDA = ()=>(
-    <Modal title="Da incassare netto – Composizione" onClose={onClose} width={750}>
-      <div style={{background:'#f0fdf4',borderRadius:8,padding:12,marginBottom:16,display:'flex',gap:24}}>
-        <div><div style={{fontSize:11,color:T.textL}}>Totale netto da incassare</div><div style={{fontWeight:700,fontSize:22,color:T.green}}>{fmt(KPI.daIncassareNettoAperte)}</div></div>
-        <div><div style={{fontSize:11,color:T.textL}}>di cui scadute</div><div style={{fontWeight:700,fontSize:22,color:T.red}}>{fmt(D.fattureAttive.filter(f=>f.stato==='Scaduta').reduce((a,f)=>a+f.netto,0))}</div></div>
-      </div>
-      <div style={{fontSize:12,color:T.textL,marginBottom:10}}>Formula: Importo lordo − Garanzia = Netto da incassare (per ogni fattura aperta)</div>
-      <Table headers={[{label:'Fattura'},{label:'Cliente'},{label:'Commessa'},{label:'Scadenza'},{label:'Lordo',right:true},{label:'Garanzia',right:true},{label:'Netto',right:true},{label:'Stato'}]}>
-        {D.fattureAttive.map(f=>(
-          <tr key={f.id} style={{background:f.stato==='Scaduta'?'#fff5f5':'transparent'}}>
-            <Td bold>{f.num}</Td><Td>{f.cliente}</Td>
-            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice||f.commessa||''}</span></Td>
-            <Td nowrap color={f.stato==='Scaduta'?T.red:T.text}>{fmtDate(f.scadenza)}</Td>
-            <Td right>{fmt(f.lordo)}</Td>
-            <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
-            <Td right bold color={f.stato==='Scaduta'?T.red:T.green}>{fmt(f.netto)}</Td>
-            <Td><Badge text={f.stato}/></Td>
-          </tr>
-        ))}
-      </Table>
-    </Modal>
-  );
+  // Helper header ordinabile
+  const ThSort = ({label,k,sortK,setSortK,dir,setDir,right})=>{
+    const active = sortK===k;
+    return (
+      <th onClick={()=>{ if(active) setDir(dir==='asc'?'desc':'asc'); else { setSortK(k); setDir('asc'); } }}
+        style={{padding:'8px 10px',cursor:'pointer',userSelect:'none',textAlign:right?'right':'left',color:active?T.blue:T.textL,fontWeight:active?700:600,fontSize:11,letterSpacing:.3,textTransform:'uppercase',borderBottom:`1px solid ${T.border}`,whiteSpace:'nowrap'}}>
+        {label}{active?(dir==='asc'?' ▲':' ▼'):''}
+      </th>
+    );
+  };
+  const sortFatt = (lista,k,dir)=>{
+    const m = dir==='asc'?1:-1;
+    const cmp = (a,b)=>{
+      let va,vb;
+      if(k==='num'||k==='cliente'||k==='fornitore'||k==='stato') { va=String(a[k]||'').toLowerCase(); vb=String(b[k]||'').toLowerCase(); return va<vb?-m:va>vb?m:0; }
+      if(k==='commessa') { va=(a.commessaCodice||'').toLowerCase(); vb=(b.commessaCodice||'').toLowerCase(); return va<vb?-m:va>vb?m:0; }
+      if(k==='scadenza'||k==='data') { va=a[k]||''; vb=b[k]||''; return va<vb?-m:va>vb?m:0; }
+      // numerici
+      va=a[k]||0; vb=b[k]||0; return (va-vb)*m;
+    };
+    return [...lista].sort(cmp);
+  };
 
-  const ModalDP = ()=>(
-    <Modal title="Da pagare netto – Composizione" onClose={onClose} width={800}>
-      <div style={{background:T.redL,borderRadius:8,padding:12,marginBottom:16,display:'flex',gap:24}}>
-        <div><div style={{fontSize:11,color:T.textL}}>Totale netto da pagare</div><div style={{fontWeight:700,fontSize:22,color:T.red}}>{fmt(KPI.daPagareNetto)}</div></div>
-        <div><div style={{fontSize:11,color:T.textL}}>Garanzie passive totali</div><div style={{fontWeight:700,fontSize:22,color:T.amber}}>{fmt(D.fatturePassive.reduce((a,f)=>a+f.garanzia,0))}</div></div>
-        <div><div style={{fontSize:11,color:T.textL}}>Compensazioni sub</div><div style={{fontWeight:700,fontSize:22,color:T.blue}}>{fmt(D.fatturePassive.reduce((a,f)=>a+f.compSub,0))}</div></div>
-      </div>
-      <Table headers={[{label:'Fornitore'},{label:'Commessa'},{label:'Lordo',right:true},{label:'Garanzia',right:true},{label:'Comp. sub',right:true},{label:'Netto',right:true},{label:'Stato'}]}>
-        {D.fatturePassive.map(f=>(
-          <tr key={f.id} style={{background:f.stato==='Urgente'?'#fffbeb':'transparent'}}>
-            <Td bold>{f.fornitore}</Td>
-            <Td><span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice||f.commessa||''}</span></Td>
-            <Td right>{fmt(f.lordo)}</Td>
-            <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
-            <Td right color={T.blue}>{fmt(f.compSub)}</Td>
-            <Td right bold color={T.red}>{fmt(f.netto)}</Td>
-            <Td><Badge text={f.stato}/></Td>
-          </tr>
-        ))}
-      </Table>
-    </Modal>
-  );
+  const ModalDA = ()=>{
+    const [fCli,setFCli]=useState('');
+    const [fComm,setFComm]=useState('');
+    const [fStato,setFStato]=useState('');
+    const [sortK,setSortK]=useState('scadenza');
+    const [dir,setDir]=useState('asc');
+
+    const cliOpt = [...new Set(D.fattureAttive.map(f=>f.cliente))].filter(Boolean).sort();
+    const commOpt= [...new Set(D.fattureAttive.map(f=>f.commessaCodice))].filter(Boolean).sort();
+    const statoOpt=[...new Set(D.fattureAttive.map(f=>f.stato))].filter(Boolean).sort();
+
+    const lista = sortFatt(D.fattureAttive.filter(f=>{
+      if(fCli  && f.cliente!==fCli) return false;
+      if(fComm && (f.commessaCodice||'')!==fComm) return false;
+      if(fStato&& f.stato!==fStato) return false;
+      return true;
+    }), sortK, dir);
+
+    const totFiltLordo = lista.reduce((a,f)=>a+(f.lordo||0),0);
+    const totFiltNetto = lista.reduce((a,f)=>a+(f.netto||0),0);
+    const totFiltGar   = lista.reduce((a,f)=>a+(f.garanzia||0),0);
+
+    return (
+      <Modal title="Da incassare netto – Composizione" onClose={onClose} width={820}>
+        <div style={{background:'#f0fdf4',borderRadius:8,padding:12,marginBottom:12,display:'flex',gap:24,flexWrap:'wrap'}}>
+          <div><div style={{fontSize:11,color:T.textL}}>Totale netto da incassare</div><div style={{fontWeight:700,fontSize:22,color:T.green}}>{fmt(KPI.daIncassareNettoAperte)}</div></div>
+          <div><div style={{fontSize:11,color:T.textL}}>di cui scadute</div><div style={{fontWeight:700,fontSize:22,color:T.red}}>{fmt(D.fattureAttive.filter(f=>f.stato==='Scaduta').reduce((a,f)=>a+f.netto,0))}</div></div>
+          {(fCli||fComm||fStato)&&<div style={{borderLeft:`2px solid ${T.border}`,paddingLeft:16}}><div style={{fontSize:11,color:T.textL}}>Filtrato ({lista.length})</div><div style={{fontWeight:700,fontSize:18,color:T.blue}}>{fmt(totFiltNetto)}</div></div>}
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+          <select value={fStato} onChange={e=>setFStato(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'5px 8px',fontSize:12}}>
+            <option value="">Tutti gli stati</option>{statoOpt.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fCli} onChange={e=>setFCli(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'5px 8px',fontSize:12,maxWidth:200}}>
+            <option value="">Tutti i clienti</option>{cliOpt.map(s=><option key={s} value={s}>{s.length>30?s.slice(0,28)+'…':s}</option>)}
+          </select>
+          <select value={fComm} onChange={e=>setFComm(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'5px 8px',fontSize:12}}>
+            <option value="">Tutte le commesse</option>{commOpt.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          {(fCli||fComm||fStato)&&<button onClick={()=>{setFCli('');setFComm('');setFStato('');}} style={{background:'none',border:'none',color:T.blue,fontSize:12,cursor:'pointer',textDecoration:'underline'}}>reset</button>}
+          <span style={{marginLeft:'auto',fontSize:11,color:T.textL}}>Lordo: <b>{fmt(totFiltLordo)}</b> · Gar: <b style={{color:T.amber}}>{fmt(totFiltGar)}</b></span>
+        </div>
+        <div style={{fontSize:11,color:T.textL,marginBottom:6}}>Formula: Lordo − Garanzia = Netto · click su intestazione per ordinare</div>
+        <div style={{maxHeight:480,overflowY:'auto',border:`1px solid ${T.border}`,borderRadius:6}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead style={{position:'sticky',top:0,background:'#f8fafc',zIndex:1}}>
+              <tr>
+                <ThSort label="Fattura"  k="num"      sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Cliente"  k="cliente"  sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Commessa" k="commessa" sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Scadenza" k="scadenza" sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Lordo"    k="lordo"    sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Garanzia" k="garanzia" sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Netto"    k="netto"    sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Stato"    k="stato"    sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.length===0 ? <tr><td colSpan={8} style={{padding:20,textAlign:'center',color:T.textL}}>Nessuna fattura corrisponde ai filtri.</td></tr> :
+                lista.map(f=>(
+                  <tr key={f.id} style={{borderTop:`1px solid ${T.border}`,background:f.stato==='Scaduta'?'#fff5f5':'transparent'}}>
+                    <Td bold>{f.num}</Td><Td>{f.cliente}</Td>
+                    <Td>{f.commessaCodice ? <span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice}</span> : <span style={{color:T.textL}}>—</span>}</Td>
+                    <Td nowrap color={f.stato==='Scaduta'?T.red:T.text}>{fmtDate(f.scadenza)}</Td>
+                    <Td right>{fmt(f.lordo)}</Td>
+                    <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
+                    <Td right bold color={f.stato==='Scaduta'?T.red:T.green}>{fmt(f.netto)}</Td>
+                    <Td><Badge text={f.stato}/></Td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+    );
+  };
+
+  const ModalDP = ()=>{
+    const [fForn,setFForn]=useState('');
+    const [fComm,setFComm]=useState('');
+    const [fStato,setFStato]=useState('');
+    const [sortK,setSortK]=useState('scadenza');
+    const [dir,setDir]=useState('asc');
+
+    const fornOpt = [...new Set(D.fatturePassive.map(f=>f.fornitore))].filter(Boolean).sort();
+    const commOpt= [...new Set(D.fatturePassive.map(f=>f.commessaCodice))].filter(Boolean).sort();
+    const statoOpt=[...new Set(D.fatturePassive.map(f=>f.stato))].filter(Boolean).sort();
+
+    const lista = sortFatt(D.fatturePassive.filter(f=>{
+      if(fForn && f.fornitore!==fForn) return false;
+      if(fComm && (f.commessaCodice||'')!==fComm) return false;
+      if(fStato&& f.stato!==fStato) return false;
+      return true;
+    }), sortK, dir);
+
+    const totFiltLordo = lista.reduce((a,f)=>a+(f.lordo||0),0);
+    const totFiltNetto = lista.reduce((a,f)=>a+(f.netto||0),0);
+    const totFiltGar   = lista.reduce((a,f)=>a+(f.garanzia||0),0);
+
+    return (
+      <Modal title="Da pagare netto – Composizione" onClose={onClose} width={860}>
+        <div style={{background:T.redL,borderRadius:8,padding:12,marginBottom:12,display:'flex',gap:24,flexWrap:'wrap'}}>
+          <div><div style={{fontSize:11,color:T.textL}}>Totale netto da pagare</div><div style={{fontWeight:700,fontSize:22,color:T.red}}>{fmt(KPI.daPagareNetto)}</div></div>
+          <div><div style={{fontSize:11,color:T.textL}}>Garanzie passive</div><div style={{fontWeight:700,fontSize:22,color:T.amber}}>{fmt(D.fatturePassive.reduce((a,f)=>a+f.garanzia,0))}</div></div>
+          <div><div style={{fontSize:11,color:T.textL}}>Comp. sub</div><div style={{fontWeight:700,fontSize:22,color:T.blue}}>{fmt(D.fatturePassive.reduce((a,f)=>a+f.compSub,0))}</div></div>
+          {(fForn||fComm||fStato)&&<div style={{borderLeft:`2px solid ${T.border}`,paddingLeft:16}}><div style={{fontSize:11,color:T.textL}}>Filtrato ({lista.length})</div><div style={{fontWeight:700,fontSize:18,color:T.blue}}>{fmt(totFiltNetto)}</div></div>}
+        </div>
+        <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+          <select value={fStato} onChange={e=>setFStato(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'5px 8px',fontSize:12}}>
+            <option value="">Tutti gli stati</option>{statoOpt.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fForn} onChange={e=>setFForn(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'5px 8px',fontSize:12,maxWidth:200}}>
+            <option value="">Tutti i fornitori</option>{fornOpt.map(s=><option key={s} value={s}>{s.length>30?s.slice(0,28)+'…':s}</option>)}
+          </select>
+          <select value={fComm} onChange={e=>setFComm(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'5px 8px',fontSize:12}}>
+            <option value="">Tutte le commesse</option>{commOpt.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          {(fForn||fComm||fStato)&&<button onClick={()=>{setFForn('');setFComm('');setFStato('');}} style={{background:'none',border:'none',color:T.blue,fontSize:12,cursor:'pointer',textDecoration:'underline'}}>reset</button>}
+          <span style={{marginLeft:'auto',fontSize:11,color:T.textL}}>Lordo: <b>{fmt(totFiltLordo)}</b> · Gar: <b style={{color:T.amber}}>{fmt(totFiltGar)}</b></span>
+        </div>
+        <div style={{fontSize:11,color:T.textL,marginBottom:6}}>Click su intestazione per ordinare</div>
+        <div style={{maxHeight:480,overflowY:'auto',border:`1px solid ${T.border}`,borderRadius:6}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+            <thead style={{position:'sticky',top:0,background:'#f8fafc',zIndex:1}}>
+              <tr>
+                <ThSort label="Fornitore" k="fornitore" sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Commessa"  k="commessa"  sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Scadenza"  k="scadenza"  sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+                <ThSort label="Lordo"     k="lordo"     sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Garanzia"  k="garanzia"  sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Comp. sub" k="compSub"   sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Netto"     k="netto"     sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir} right/>
+                <ThSort label="Stato"     k="stato"     sortK={sortK} setSortK={setSortK} dir={dir} setDir={setDir}/>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.length===0 ? <tr><td colSpan={8} style={{padding:20,textAlign:'center',color:T.textL}}>Nessuna fattura corrisponde ai filtri.</td></tr> :
+                lista.map(f=>(
+                  <tr key={f.id} style={{borderTop:`1px solid ${T.border}`,background:f.stato==='Urgente'?'#fffbeb':'transparent'}}>
+                    <Td bold>{f.fornitore}</Td>
+                    <Td>{f.commessaCodice ? <span style={{background:T.blueL,color:T.blue,padding:'2px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice}</span> : <span style={{color:T.textL}}>—</span>}</Td>
+                    <Td nowrap>{fmtDate(f.scadenza)||'—'}</Td>
+                    <Td right>{fmt(f.lordo)}</Td>
+                    <Td right color={T.amber}>{fmt(f.garanzia)}</Td>
+                    <Td right color={T.blue}>{fmt(f.compSub)}</Td>
+                    <Td right bold color={T.red}>{fmt(f.netto)}</Td>
+                    <Td><Badge text={f.stato}/></Td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+      </Modal>
+    );
+  };
 
   const ModalGar = ()=>(
     <Modal title="Garanzie – Dettaglio completo" onClose={onClose} width={800}>
