@@ -1418,6 +1418,9 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
   const [garEvento,setGarEvento]=useState(c.garanzia?.evento||'Fine lavori');
   const [garSvincoloMesi,setGarSvincoloMesi]=useState(c.garanzia?.svincoloMesi||'6');
   const [garScadenza,setGarScadenza]=useState(c.garanzia?.svincolo||'');
+  // Obbligo contrattuale di garanzia (es. 24 mesi dalla consegna per vizi occulti)
+  const [garDurataMesi,setGarDurataMesi]=useState(c.garanzia?.durataMesi||'24');
+  const [garScadContrattuale,setGarScadContrattuale]=useState(c.garanzia?.scadenzaContrattuale||'');
   const [compEnabled,setCompEnabled]=useState(!!c.compEnabled);
   const [autonomo,setAutonomo]=useState(!!c.autonomo);
 
@@ -1435,7 +1438,18 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
       pagMode, fattMode,
       autonomo, compEnabled,
       acconto: accActive ? { tipo:accTipo, val:parseFloat(accVal)||0, regola:accRegola, residuo:c.acconto?.residuo||0, recuperato:c.acconto?.recuperato||0 } : null,
-      garanzia: garActive ? { tipo:garTipo, val:parseFloat(garVal)||0, evento:garEvento, svincoloMesi:parseInt(garSvincoloMesi)||6, svincolo:garScadenza||null, residuo:c.garanzia?.residuo||0, nonIncassata:c.garanzia?.nonIncassata||0 } : null,
+      garanzia: garActive ? {
+        tipo:garTipo,
+        val:parseFloat(garVal)||0,
+        perc: garTipo==='Percentuale' ? (parseFloat(garVal)||0) : null,
+        evento:garEvento,
+        svincoloMesi:parseInt(garSvincoloMesi)||6,
+        svincolo:garScadenza||null,
+        durataMesi:parseInt(garDurataMesi)||24,
+        scadenzaContrattuale: garScadContrattuale || (dataFine && garDurataMesi ? new Date(new Date(dataFine).getTime()+parseInt(garDurataMesi)*30*86400000).toISOString().slice(0,10) : null),
+        residuo:c.garanzia?.residuo||0,
+        nonIncassata:c.garanzia?.nonIncassata||0
+      } : null,
     };
     updateCommessa(c.id, patch);
     onClose();
@@ -1542,7 +1556,9 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
             <input type="checkbox" checked={garActive} onChange={e=>setGarActive(e.target.checked)}/> Garanzia prevista
           </label>
           {garActive&&<div style={{padding:10,background:T.amberL,borderRadius:6}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+            {/* Sezione 1: % di trattenuta */}
+            <div style={{fontSize:11,fontWeight:700,color:'#92400e',marginBottom:6,textTransform:'uppercase',letterSpacing:.3}}>① Trattenuta su fattura</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
               <div>
                 <label style={lab}>Tipo</label>
                 <select value={garTipo} onChange={e=>setGarTipo(e.target.value)} style={inp}>
@@ -1550,25 +1566,44 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
                 </select>
               </div>
               <div>
-                <label style={lab}>Valore ({garTipo==='Percentuale'?'%':'€'})</label>
-                <input type="number" value={garVal} onChange={e=>setGarVal(e.target.value)} style={inp}/>
+                <label style={lab}>Valore ({garTipo==='Percentuale'?'% per fattura':'€ totali'})</label>
+                <input type="number" step="0.1" value={garVal} onChange={e=>setGarVal(e.target.value)} style={inp} placeholder={garTipo==='Percentuale'?'es. 10':'es. 50000'}/>
               </div>
             </div>
-            <div style={{marginBottom:10}}>
-              <label style={lab}>Evento svincolo</label>
-              <select value={garEvento} onChange={e=>setGarEvento(e.target.value)} style={inp}>
-                <option>Fine lavori</option><option>Collaudo</option><option>Consegna</option><option>Fine periodo garanzia</option>
-              </select>
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+
+            {/* Sezione 2: svincolo trattenuta */}
+            <div style={{fontSize:11,fontWeight:700,color:'#92400e',marginBottom:6,textTransform:'uppercase',letterSpacing:.3}}>② Svincolo trattenuta</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8}}>
               <div>
-                <label style={lab}>Mesi attesa svincolo</label>
+                <label style={lab}>Evento</label>
+                <select value={garEvento} onChange={e=>setGarEvento(e.target.value)} style={inp}>
+                  <option>Fine lavori</option><option>Collaudo</option><option>Consegna</option><option>Fine periodo garanzia</option>
+                </select>
+              </div>
+              <div>
+                <label style={lab}>Mesi attesa</label>
                 <input type="number" value={garSvincoloMesi} onChange={e=>setGarSvincoloMesi(e.target.value)} style={inp}/>
               </div>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={lab}>Data svincolo trattenuta</label>
+              <input type="date" value={garScadenza} onChange={e=>setGarScadenza(e.target.value)} style={inp}/>
+            </div>
+
+            {/* Sezione 3: obbligo contrattuale (vizi/buon funzionamento) */}
+            <div style={{fontSize:11,fontWeight:700,color:'#92400e',marginBottom:6,textTransform:'uppercase',letterSpacing:.3}}>③ Obbligo contrattuale</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
               <div>
-                <label style={lab}>Scadenza garanzia</label>
-                <input type="date" value={garScadenza} onChange={e=>setGarScadenza(e.target.value)} style={inp}/>
+                <label style={lab}>Durata (mesi dalla consegna)</label>
+                <input type="number" value={garDurataMesi} onChange={e=>setGarDurataMesi(e.target.value)} style={inp} placeholder="24"/>
               </div>
+              <div>
+                <label style={lab}>Scadenza contrattuale</label>
+                <input type="date" value={garScadContrattuale} onChange={e=>setGarScadContrattuale(e.target.value)} style={inp} placeholder={dataFine && garDurataMesi ? `auto: ${new Date(new Date(dataFine).getTime()+parseInt(garDurataMesi)*30*86400000).toISOString().slice(0,10)}` : ''}/>
+              </div>
+            </div>
+            <div style={{fontSize:10,color:'#92400e',marginTop:6,fontStyle:'italic'}}>
+              Se vuoto, viene calcolata automaticamente da Data fine + Durata mesi.
             </div>
           </div>}
         </div>
