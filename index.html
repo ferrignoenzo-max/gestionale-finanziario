@@ -631,6 +631,7 @@ const NAV=[
   {id:'fornitori',label:'Fornitori',icon:'🏗'},
   {id:'subappaltatori',label:'Subappaltatori',icon:'👷'},
   {section:'COMMESSE & CONTRATTI'},
+  {id:'nuovaCommessa',label:'➕ Nuova Commessa',icon:'＋'},
   {id:'watchlist',label:'Watchlist Commesse',icon:'⊞'},
   {id:'garanzieAcc',label:'Garanzie & Acconti',icon:'🔒'},
   {id:'storicoComp',label:'Compensazioni',icon:'⇌'},
@@ -644,7 +645,7 @@ const NAV=[
 ];
 
 const Sidebar = ({page,onNav,onSearch})=>{
-  const mainPages=['dashboard','anagrafica','scadenziario','fattureAttive','fatturePassive','noteCredito','utenze','fornitori','subappaltatori','watchlist','garanzieAcc','storicoComp','primaNota','banca','report','auditLog','importa'];
+  const mainPages=['dashboard','anagrafica','scadenziario','fattureAttive','fatturePassive','noteCredito','utenze','fornitori','subappaltatori','nuovaCommessa','watchlist','garanzieAcc','storicoComp','primaNota','banca','report','auditLog','importa'];
   return (
     <div style={{width:220,background:T.sidebar,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
       <div style={{padding:'16px 16px 10px'}}>
