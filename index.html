@@ -870,8 +870,8 @@ const PageDashboard = ({onNav,openModal})=>{
               return (
                 <div key={c.id} style={{padding:'12px 0',borderBottom:`1px solid ${i<D.commesse.filter(x=>x.stato==='Attiva').length-1?T.border:'transparent'}`}}>
                   <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
-                    <span style={{width:32,fontWeight:700,fontSize:12,color:T.blue,flexShrink:0}}>{c.codice}</span>
-                    <span style={{fontSize:12,color:T.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.nome}</span>
+                    <span style={{width:120,fontWeight:700,fontSize:12,color:T.blue,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.codice}</span>
+                    <span style={{fontSize:12,color:T.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{c.nome}</span>
                     <span style={{fontSize:11,color:T.textL,flexShrink:0}}>{c.cliente}</span>
                     <span style={{fontWeight:700,fontSize:12,color:T.textL,flexShrink:0}}>{fmt(c.importoContrattuale)}</span>
                   </div>
