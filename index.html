@@ -1394,8 +1394,197 @@ const PageWatchlist = ({onNav,openModal})=>{
 };
 
 /* ─── PAGE: DETTAGLIO COMMESSA ───────────────────────────── */
-const PageDettaglioCommessa = ({commessa,onNav,openModal})=>{
+/* Modal edit commessa: pre-compila tutti i campi e salva via updateCommessa */
+const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
+  const c = commessa;
+  const [nome,setNome]=useState(c.nome||'');
+  const [cliente,setCliente]=useState(c.cliente||'');
+  const [tipoLavoro,setTipoLavoro]=useState(c.tipoLavoro||'Commessa');
+  const [stato,setStato]=useState(c.stato||'Attiva');
+  const [importo,setImporto]=useState(c.importoContrattuale||'');
+  const [dataInizio,setDataInizio]=useState(c.dataInizio||'');
+  const [dataFine,setDataFine]=useState(c.dataFine||'');
+  const [pagMode,setPagMode]=useState(c.pagMode||'30gg FM');
+  const [fattMode,setFattMode]=useState(c.fattMode||'SAL mensile');
+  // Acconto
+  const [accActive,setAccActive]=useState(!!c.acconto);
+  const [accTipo,setAccTipo]=useState(c.acconto?.tipo||'Percentuale');
+  const [accVal,setAccVal]=useState(c.acconto?.val||'');
+  const [accRegola,setAccRegola]=useState(c.acconto?.regola||'su_ogni_sal');
+  // Garanzia
+  const [garActive,setGarActive]=useState(!!c.garanzia);
+  const [garTipo,setGarTipo]=useState(c.garanzia?.tipo||'Percentuale');
+  const [garVal,setGarVal]=useState(c.garanzia?.val||'');
+  const [garEvento,setGarEvento]=useState(c.garanzia?.evento||'Fine lavori');
+  const [garSvincoloMesi,setGarSvincoloMesi]=useState(c.garanzia?.svincoloMesi||'6');
+  const [garScadenza,setGarScadenza]=useState(c.garanzia?.svincolo||'');
+  const [compEnabled,setCompEnabled]=useState(!!c.compEnabled);
+  const [autonomo,setAutonomo]=useState(!!c.autonomo);
+
+  const clientiOpt = [...new Set([...(D.anagrafica||[]).map(a=>a.nome), ...(D.commesse||[]).map(c=>c.cliente)])].filter(Boolean).sort();
+
+  const lab = {fontSize:11,fontWeight:600,color:T.textL,textTransform:'uppercase',letterSpacing:.3,marginBottom:4,display:'block'};
+  const inp = {width:'100%',border:`1px solid ${T.border}`,borderRadius:6,padding:'6px 10px',fontSize:13,boxSizing:'border-box'};
+
+  const handleSave = ()=>{
+    const patch = {
+      nome, cliente, tipoLavoro, stato,
+      importoContrattuale: parseFloat(importo)||0,
+      dataInizio: dataInizio||null,
+      dataFine: dataFine||null,
+      pagMode, fattMode,
+      autonomo, compEnabled,
+      acconto: accActive ? { tipo:accTipo, val:parseFloat(accVal)||0, regola:accRegola, residuo:c.acconto?.residuo||0, recuperato:c.acconto?.recuperato||0 } : null,
+      garanzia: garActive ? { tipo:garTipo, val:parseFloat(garVal)||0, evento:garEvento, svincoloMesi:parseInt(garSvincoloMesi)||6, svincolo:garScadenza||null, residuo:c.garanzia?.residuo||0, nonIncassata:c.garanzia?.nonIncassata||0 } : null,
+    };
+    updateCommessa(c.id, patch);
+    onClose();
+  };
+
+  return (
+    <Modal title={`Modifica commessa ${c.codice}`} onClose={onClose} width={760}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        {/* COLONNA SX: dati base + economici */}
+        <div>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:T.blue}}>📋 Dati base</div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Codice</label>
+            <input value={c.codice} disabled style={{...inp,background:'#f1f5f9',color:T.textL}}/>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Nome / Descrizione</label>
+            <input value={nome} onChange={e=>setNome(e.target.value)} style={inp} placeholder="Es. MY Atomic, Refit motore..."/>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Cliente</label>
+            <input list="cli-list" value={cliente} onChange={e=>setCliente(e.target.value)} style={inp}/>
+            <datalist id="cli-list">{clientiOpt.map(n=><option key={n} value={n}/>)}</datalist>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+            <div>
+              <label style={lab}>Tipo lavoro</label>
+              <select value={tipoLavoro} onChange={e=>setTipoLavoro(e.target.value)} style={inp}>
+                <option>Commessa</option><option>Ordine</option><option>Extra</option>
+              </select>
+            </div>
+            <div>
+              <label style={lab}>Stato</label>
+              <select value={stato} onChange={e=>setStato(e.target.value)} style={inp}>
+                <option>Attiva</option><option>Completata</option><option>Sospesa</option>
+              </select>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Importo totale commessa (€)</label>
+            <input type="number" value={importo} onChange={e=>setImporto(e.target.value)} style={inp} placeholder="0"/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+            <div>
+              <label style={lab}>Data inizio lavori</label>
+              <input type="date" value={dataInizio} onChange={e=>setDataInizio(e.target.value)} style={inp}/>
+            </div>
+            <div>
+              <label style={lab}>Data fine prevista</label>
+              <input type="date" value={dataFine} onChange={e=>setDataFine(e.target.value)} style={inp}/>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Modalità pagamento</label>
+            <select value={pagMode} onChange={e=>setPagMode(e.target.value)} style={inp}>
+              <option>30gg FM</option><option>60gg FM</option><option>90gg FM</option><option>30gg DF</option><option>60gg DF</option><option>Bonifico immediato</option>
+            </select>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Modalità fatturazione</label>
+            <select value={fattMode} onChange={e=>setFattMode(e.target.value)} style={inp}>
+              <option>SAL mensile</option><option>SAL avanzamento</option><option>Fattura unica</option><option>Forfait fisso</option>
+            </select>
+          </div>
+          <div style={{display:'flex',gap:14,fontSize:12}}>
+            <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+              <input type="checkbox" checked={autonomo} onChange={e=>setAutonomo(e.target.checked)}/> Autonomo
+            </label>
+            <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+              <input type="checkbox" checked={compEnabled} onChange={e=>setCompEnabled(e.target.checked)}/> Compensazioni abilitate
+            </label>
+          </div>
+        </div>
+
+        {/* COLONNA DX: acconto + garanzia */}
+        <div>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:T.purple}}>💰 Acconto all'ordine</div>
+          <label style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,fontSize:12,cursor:'pointer'}}>
+            <input type="checkbox" checked={accActive} onChange={e=>setAccActive(e.target.checked)}/> Acconto previsto
+          </label>
+          {accActive&&<div style={{padding:10,background:T.purpleL,borderRadius:6,marginBottom:14}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+              <div>
+                <label style={lab}>Tipo</label>
+                <select value={accTipo} onChange={e=>setAccTipo(e.target.value)} style={inp}>
+                  <option>Percentuale</option><option>Importo fisso</option>
+                </select>
+              </div>
+              <div>
+                <label style={lab}>Valore ({accTipo==='Percentuale'?'%':'€'})</label>
+                <input type="number" value={accVal} onChange={e=>setAccVal(e.target.value)} style={inp}/>
+              </div>
+            </div>
+            <label style={lab}>Regola riassorbimento</label>
+            <select value={accRegola} onChange={e=>setAccRegola(e.target.value)} style={inp}>
+              <option value="su_ogni_sal">Su ogni SAL (proporzionale)</option>
+              <option value="a_fine_lavori">A fine lavori (ultima fattura)</option>
+              <option value="manuale">Manuale</option>
+            </select>
+          </div>}
+
+          <div style={{fontWeight:700,fontSize:13,marginBottom:10,color:T.amber}}>🔐 Garanzia contrattuale</div>
+          <label style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,fontSize:12,cursor:'pointer'}}>
+            <input type="checkbox" checked={garActive} onChange={e=>setGarActive(e.target.checked)}/> Garanzia prevista
+          </label>
+          {garActive&&<div style={{padding:10,background:T.amberL,borderRadius:6}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+              <div>
+                <label style={lab}>Tipo</label>
+                <select value={garTipo} onChange={e=>setGarTipo(e.target.value)} style={inp}>
+                  <option>Percentuale</option><option>Importo fisso</option>
+                </select>
+              </div>
+              <div>
+                <label style={lab}>Valore ({garTipo==='Percentuale'?'%':'€'})</label>
+                <input type="number" value={garVal} onChange={e=>setGarVal(e.target.value)} style={inp}/>
+              </div>
+            </div>
+            <div style={{marginBottom:10}}>
+              <label style={lab}>Evento svincolo</label>
+              <select value={garEvento} onChange={e=>setGarEvento(e.target.value)} style={inp}>
+                <option>Fine lavori</option><option>Collaudo</option><option>Consegna</option><option>Fine periodo garanzia</option>
+              </select>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div>
+                <label style={lab}>Mesi attesa svincolo</label>
+                <input type="number" value={garSvincoloMesi} onChange={e=>setGarSvincoloMesi(e.target.value)} style={inp}/>
+              </div>
+              <div>
+                <label style={lab}>Scadenza garanzia</label>
+                <input type="date" value={garScadenza} onChange={e=>setGarScadenza(e.target.value)} style={inp}/>
+              </div>
+            </div>
+          </div>}
+        </div>
+      </div>
+
+      <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+        <Btn onClick={onClose} variant='outline'>Annulla</Btn>
+        <Btn onClick={handleSave} variant='primary'>💾 Salva modifiche</Btn>
+      </div>
+    </Modal>
+  );
+};
+
+const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
   const [tab,setTab]=useState('sal');
+  const [editOpen,setEditOpen]=useState(false);
   if(!commessa) return <div style={{padding:24}}><Card><div style={{color:T.textL,textAlign:'center',padding:40}}>Nessuna commessa selezionata. <span style={{color:T.blue,cursor:'pointer'}} onClick={()=>onNav('watchlist')}>Vai alla watchlist →</span></div></Card></div>;
   const c=commessa;
   const daInc=D.fattureAttive.filter(f=>f.commessa===c.id&&f.stato!=='Scaduta').reduce((a,f)=>a+f.netto,0);
@@ -1414,7 +1603,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal})=>{
         <Btn onClick={()=>onNav('watchlist')} variant='outline' size='sm'>← Watchlist</Btn>
         <span style={{background:c.tipoLavoro==='Commessa'?T.blueL:c.tipoLavoro==='Ordine'?'#f0fdf4':T.purpleL,color:c.tipoLavoro==='Commessa'?T.blue:c.tipoLavoro==='Ordine'?T.green:T.purple,padding:'3px 10px',borderRadius:12,fontSize:11,fontWeight:700}}>{c.tipoLavoro}</span>
         <span style={{fontSize:13,color:T.textL}}>{c.nome}</span>
+        <Btn onClick={()=>setEditOpen(true)} variant='outline' size='sm' style={{marginLeft:'auto'}}>✏️ Modifica</Btn>
       </div>
+      {editOpen&&<EditCommessaModal commessa={c} onClose={()=>setEditOpen(false)} updateCommessa={updateCommessa}/>}
 
       {/* Header KPIs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:14}}>
@@ -5833,6 +6024,33 @@ const App = ()=>{
     }
   },[bumpData]);
 
+  /* Aggiorna una commessa esistente: merge campi + persistenza su Supabase via PATCH */
+  const updateCommessa = useCallback(async (id, patch)=>{
+    const i = D.commesse.findIndex(c=>c.id===id);
+    if(i<0) return;
+    Object.assign(D.commesse[i], patch);
+    linkFatture();
+    ricalcolaKPI();
+    bumpData();
+    try {
+      const c = D.commesse[i];
+      const payload = {
+        codice: c.codice, nome: c.nome, cliente: c.cliente,
+        tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale,
+        stato: c.stato, data_inizio: c.dataInizio, data_fine: c.dataFine,
+        fatt_mode: c.fattMode, pag_mode: c.pagMode,
+        madre_id: c.madreId, autonomo: c.autonomo,
+        acconto: c.acconto, garanzia: c.garanzia,
+        comp_enabled: c.compEnabled,
+      };
+      await fetch(`${SB_URL}/rest/v1/commesse?id=eq.${id}`, {
+        method:'PATCH', headers: SB_H_WRITE, body: JSON.stringify(payload),
+      });
+    } catch(err) {
+      console.warn('Update commessa solo in sessione:', err.message);
+    }
+  },[bumpData]);
+
   const handleReset = ()=>{
     D.commesse.splice(D_DEMO_COMMESSE_LEN);
     D.anagrafica.splice(D_DEMO_ANAGRAFICA_LEN);
@@ -5858,7 +6076,7 @@ const App = ()=>{
 </div>}
         {page==='dashboard'&&<PageDashboard onNav={navigate} openModal={openModal}/>}
           {page==='watchlist'&&<PageWatchlist onNav={navigate} openModal={openModal}/>}
-          {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal}/>}
+          {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal} updateCommessa={updateCommessa}/>}
           {page==='scadenziario'&&<PageScadenziario openModal={openModal}/>}
           {page==='fattureAttive'&&<PageFattureAttive onNav={navigate} openModal={openModal}/>}
           {page==='fatturePassive'&&<PageFatturePassive openModal={openModal}/>}
