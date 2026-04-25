@@ -270,12 +270,19 @@ const linkFatture = ()=>{
         }
       } else {
         f.commessa = f.commessa||null;
-        f.commessaCodice = null;
+        // Lookup inverso: se la fattura ha già un UUID commessa salvato in DB, recupera il codice
+        if(f.commessa) {
+          const existing = D.commesse.find(c => c.id === f.commessa);
+          f.commessaCodice = existing ? existing.codice : null;
+          f.statoLink = existing ? 'Assegnata' : 'NonAssegnata';
+        } else {
+          f.commessaCodice = null;
+          f.statoLink = 'NonAssegnata';
+        }
         f.tipoRif = null;
         f.salNum = null;
         f.ordine = null;
         f.codiceMulti = null;
-        f.statoLink = 'NonAssegnata';
       }
     });
   };
