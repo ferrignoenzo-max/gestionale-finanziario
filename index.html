@@ -772,6 +772,15 @@ const Header = ({page,onAI,selectedCommessa})=>(
 const PageDashboard = ({onNav,openModal})=>{
   const [meseKpi,setMeseKpi]=useState(new Date().toISOString().slice(0,7));
   const [detailPanel,setDetailPanel]=useState(null); // 'utenze30' | 'fornMat30' | null
+  // Filtri fatture in dashboard
+  const [attStato,setAttStato]=useState('');
+  const [attComm,setAttComm]=useState('');
+  const [attCli,setAttCli]=useState('');
+  const [attSort,setAttSort]=useState('scadenza');
+  const [pasStato,setPasStato]=useState('');
+  const [pasComm,setPasComm]=useState('');
+  const [pasForn,setPasForn]=useState('');
+  const [pasSort,setPasSort]=useState('scadenza');
 
   const AlertItem = ({text,color,commessa})=>(
     <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${T.border}`}}>
@@ -967,6 +976,127 @@ const PageDashboard = ({onNav,openModal})=>{
           </div>
         </Card>
       </div>
+
+      {/* ─── Fatture Attive & Passive con filtri ──────────────── */}
+      {(()=>{
+        const sortFn = (key) => (a,b)=>{
+          if(key==='scadenza') return (a.scadenza||'').localeCompare(b.scadenza||'');
+          if(key==='data')     return (b.data||'').localeCompare(a.data||'');
+          if(key==='lordo')    return (b.lordo||0)-(a.lordo||0);
+          if(key==='netto')    return (b.netto||0)-(a.netto||0);
+          if(key==='commessa') return (a.commessaCodice||'').localeCompare(b.commessaCodice||'');
+          return 0;
+        };
+        // Liste filtrate
+        const fAttFil = D.fattureAttive.filter(f=>{
+          if(attStato && f.stato!==attStato) return false;
+          if(attComm  && (f.commessaCodice||'')!==attComm) return false;
+          if(attCli   && f.cliente!==attCli) return false;
+          return true;
+        }).sort(sortFn(attSort));
+        const fPasFil = D.fatturePassive.filter(f=>{
+          if(pasStato && f.stato!==pasStato) return false;
+          if(pasComm  && (f.commessaCodice||'')!==pasComm) return false;
+          if(pasForn  && f.fornitore!==pasForn) return false;
+          return true;
+        }).sort(sortFn(pasSort));
+        // Opzioni dropdown
+        const attStatiOpt = [...new Set(D.fattureAttive.map(f=>f.stato))].filter(Boolean).sort();
+        const attCommOpt  = [...new Set(D.fattureAttive.map(f=>f.commessaCodice))].filter(Boolean).sort();
+        const attCliOpt   = [...new Set(D.fattureAttive.map(f=>f.cliente))].filter(Boolean).sort();
+        const pasStatiOpt = [...new Set(D.fatturePassive.map(f=>f.stato))].filter(Boolean).sort();
+        const pasCommOpt  = [...new Set(D.fatturePassive.map(f=>f.commessaCodice))].filter(Boolean).sort();
+        const pasFornOpt  = [...new Set(D.fatturePassive.map(f=>f.fornitore))].filter(Boolean).sort();
+
+        const Sel=({val,onChange,opts,placeholder})=>(
+          <select value={val} onChange={e=>onChange(e.target.value)}
+            style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 6px',fontSize:11,background:'#fff',maxWidth:140}}>
+            <option value="">{placeholder}</option>
+            {opts.map(o=><option key={o} value={o}>{o.length>20?o.slice(0,18)+'…':o}</option>)}
+          </select>
+        );
+
+        const TableFatt = ({lista, isAtt})=>(
+          <div style={{maxHeight:260,overflowY:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
+              <thead style={{position:'sticky',top:0,background:'#f8fafc',zIndex:1}}>
+                <tr style={{textAlign:'left',color:T.textL,fontSize:10}}>
+                  <th style={{padding:'6px 4px'}}>Num</th>
+                  <th style={{padding:'6px 4px'}}>{isAtt?'Cliente':'Fornitore'}</th>
+                  <th style={{padding:'6px 4px'}}>Comm.</th>
+                  <th style={{padding:'6px 4px'}}>Scad.</th>
+                  <th style={{padding:'6px 4px',textAlign:'right'}}>Netto</th>
+                  <th style={{padding:'6px 4px'}}>Stato</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.length===0 ? (
+                  <tr><td colSpan={6} style={{padding:'16px',textAlign:'center',color:T.textL}}>Nessuna fattura.</td></tr>
+                ) : lista.map(f=>{
+                  const scaduta = f.stato==='Scaduta';
+                  return (
+                    <tr key={f.id} style={{borderTop:`1px solid ${T.border}`,background:scaduta?'rgba(220,38,38,.04)':'transparent'}}>
+                      <td style={{padding:'5px 4px',fontFamily:'monospace'}}>{f.num}</td>
+                      <td style={{padding:'5px 4px',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{isAtt?f.cliente:f.fornitore}</td>
+                      <td style={{padding:'5px 4px'}}>{f.commessaCodice ? <span style={{background:T.blueL,color:T.blue,padding:'1px 5px',borderRadius:3,fontSize:10}}>{f.commessaCodice}</span> : <span style={{color:T.textL}}>—</span>}</td>
+                      <td style={{padding:'5px 4px',color:scaduta?T.red:T.text,fontWeight:scaduta?600:400}}>{fmtDate(f.scadenza)||'—'}</td>
+                      <td style={{padding:'5px 4px',textAlign:'right',fontWeight:600,color:isAtt?T.green:T.red}}>{fmt(f.netto||0)}</td>
+                      <td style={{padding:'5px 4px'}}><Badge text={f.stato}/></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+
+        return (
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18,marginBottom:18}}>
+            <Card style={{padding:0}}>
+              <div style={{padding:'10px 14px',borderBottom:`1px solid ${T.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0fdf4',borderRadius:'8px 8px 0 0'}}>
+                <span style={{fontWeight:700,fontSize:13,color:T.green}}>↗ Fatture Attive ({fAttFil.length})</span>
+                <Btn variant='ghost' size='sm' onClick={()=>onNav('fattureAttive')}>Tutte →</Btn>
+              </div>
+              <div style={{padding:'8px 12px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:`1px solid ${T.border}`,alignItems:'center'}}>
+                <Sel val={attStato} onChange={setAttStato} opts={attStatiOpt} placeholder="Stato"/>
+                <Sel val={attCli}   onChange={setAttCli}   opts={attCliOpt}   placeholder="Cliente"/>
+                <Sel val={attComm}  onChange={setAttComm}  opts={attCommOpt}  placeholder="Commessa"/>
+                <select value={attSort} onChange={e=>setAttSort(e.target.value)}
+                  style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 6px',fontSize:11,marginLeft:'auto',background:'#fff'}}>
+                  <option value="scadenza">↑ Scadenza</option>
+                  <option value="data">↓ Data</option>
+                  <option value="netto">↓ Netto</option>
+                  <option value="lordo">↓ Lordo</option>
+                  <option value="commessa">A-Z Commessa</option>
+                </select>
+                {(attStato||attCli||attComm)&&<button onClick={()=>{setAttStato('');setAttCli('');setAttComm('');}} style={{background:'none',border:'none',color:T.blue,fontSize:10,cursor:'pointer',textDecoration:'underline'}}>reset</button>}
+              </div>
+              <TableFatt lista={fAttFil} isAtt={true}/>
+            </Card>
+            <Card style={{padding:0}}>
+              <div style={{padding:'10px 14px',borderBottom:`1px solid ${T.border}`,display:'flex',justifyContent:'space-between',alignItems:'center',background:'#fef2f2',borderRadius:'8px 8px 0 0'}}>
+                <span style={{fontWeight:700,fontSize:13,color:T.red}}>↙ Fatture Passive ({fPasFil.length})</span>
+                <Btn variant='ghost' size='sm' onClick={()=>onNav('fatturePassive')}>Tutte →</Btn>
+              </div>
+              <div style={{padding:'8px 12px',display:'flex',gap:6,flexWrap:'wrap',borderBottom:`1px solid ${T.border}`,alignItems:'center'}}>
+                <Sel val={pasStato} onChange={setPasStato} opts={pasStatiOpt} placeholder="Stato"/>
+                <Sel val={pasForn}  onChange={setPasForn}  opts={pasFornOpt}  placeholder="Fornitore"/>
+                <Sel val={pasComm}  onChange={setPasComm}  opts={pasCommOpt}  placeholder="Commessa"/>
+                <select value={pasSort} onChange={e=>setPasSort(e.target.value)}
+                  style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 6px',fontSize:11,marginLeft:'auto',background:'#fff'}}>
+                  <option value="scadenza">↑ Scadenza</option>
+                  <option value="data">↓ Data</option>
+                  <option value="netto">↓ Netto</option>
+                  <option value="lordo">↓ Lordo</option>
+                  <option value="commessa">A-Z Commessa</option>
+                </select>
+                {(pasStato||pasForn||pasComm)&&<button onClick={()=>{setPasStato('');setPasForn('');setPasComm('');}} style={{background:'none',border:'none',color:T.blue,fontSize:10,cursor:'pointer',textDecoration:'underline'}}>reset</button>}
+              </div>
+              <TableFatt lista={fPasFil} isAtt={false}/>
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* Bottom: 3 colonne – Fornitori/Utenze | Alert & Scadenze | Attività Recenti */}
       <div style={{display:'grid',gridTemplateColumns:'290px 1fr 1fr',gap:18}}>
