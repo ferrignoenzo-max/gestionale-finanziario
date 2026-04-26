@@ -908,6 +908,11 @@ const PageDashboard = ({onNav,openModal})=>{
   const [pasComm,setPasComm]=useState('');
   const [pasForn,setPasForn]=useState('');
   const [pasSort,setPasSort]=useState('scadenza');
+  // 📈 Widget Borsa - confronto fatturati mensili tra anni
+  const annoCorrente = new Date().getFullYear();
+  const [annoComp,setAnnoComp]=useState(()=>new Set([annoCorrente, annoCorrente-1])); // anni da confrontare
+  const [tipoBorsa,setTipoBorsa]=useState('lordo'); // lordo | imponibile
+  const [hoverPt,setHoverPt]=useState(null); // {anno, mese, val}
   // Filtri Avanzamento Commesse
   const [acFilter,setAcFilter]=useState('');
   const [acTipo,setAcTipo]=useState('');
@@ -1050,6 +1055,195 @@ const PageDashboard = ({onNav,openModal})=>{
           <TabellaDettaglio30 rows={detailPanel==='utenze30'?utenze30Rows:fornMat30Rows}/>
         </Card>
       )}
+
+      {/* 📈 Widget Borsa - andamento fatturato mensile multi-anno */}
+      <div style={{marginBottom:18}}>
+        <Card>
+          {(()=>{
+            // Aggrega: per ogni anno, array [12] di importi mensili (gen-dic)
+            const _val = (f) => tipoBorsa==='imponibile' ? (parseFloat(f.imponibile)||parseFloat(f.lordo)||0) : (parseFloat(f.lordo)||0);
+            const tutti = D.fattureAttive.filter(f=>f.data && f.tipo!=='Nota di credito');
+            const anniDisponibili = [...new Set(tutti.map(f => parseInt((f.data||'').slice(0,4),10)).filter(y=>y && y>2000 && y<3000))].sort();
+            const dataPerAnno = {};
+            anniDisponibili.forEach(y => {
+              dataPerAnno[y] = new Array(12).fill(0);
+            });
+            tutti.forEach(f => {
+              const y = parseInt((f.data||'').slice(0,4),10);
+              const m = parseInt((f.data||'').slice(5,7),10) - 1;
+              if(dataPerAnno[y] && m>=0 && m<=11) dataPerAnno[y][m] += _val(f);
+            });
+            // Cumulativo per anno (per stile borsa "andamento ytd")
+            const cumPerAnno = {};
+            anniDisponibili.forEach(y => {
+              const cum = [];
+              let s = 0;
+              dataPerAnno[y].forEach(v => { s+=v; cum.push(s); });
+              cumPerAnno[y] = cum;
+            });
+            const anniVisibili = [...annoComp].filter(y => anniDisponibili.includes(y));
+            // Trova max per scala Y
+            const allValsCum = anniVisibili.flatMap(y => cumPerAnno[y]);
+            const maxY = Math.max(1, ...allValsCum) * 1.05;
+            // Colori per anno (gradient)
+            const colorePerAnno = (y) => {
+              const palette = ['#2563eb','#16a34a','#9333ea','#f59e0b','#dc2626','#0891b2','#ec4899','#ea580c'];
+              const idx = anniDisponibili.indexOf(y) % palette.length;
+              return palette[idx];
+            };
+            // Dimensioni grafico
+            const W = 760, H = 240, padL=60, padR=20, padT=10, padB=30;
+            const innerW = W - padL - padR;
+            const innerH = H - padT - padB;
+            const xMese = (m) => padL + (innerW * (m+0.5) / 12);
+            const yVal = (v) => padT + innerH - (innerH * v / maxY);
+            const mesiLab = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+            // Grid lines orizzontali (5 step)
+            const stepY = maxY / 5;
+            const totaliPerAnno = anniDisponibili.map(y => ({y, tot: dataPerAnno[y].reduce((a,b)=>a+b,0), ytd: cumPerAnno[y][cumPerAnno[y].length-1]}));
+            // Performance YoY (anno corrente vs precedente)
+            const annoCur = annoCorrente;
+            const annoPrev = annoCur - 1;
+            // Mese corrente per "punto attuale"
+            const meseCorrente = new Date().getMonth(); // 0-11
+            const ytdCur = cumPerAnno[annoCur] ? cumPerAnno[annoCur][meseCorrente] : 0;
+            const ytdPrev = cumPerAnno[annoPrev] ? cumPerAnno[annoPrev][meseCorrente] : 0;
+            const yoyDelta = ytdPrev>0 ? ((ytdCur-ytdPrev)/ytdPrev*100) : null;
+            return (<>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+                <div>
+                  <h3 style={{fontSize:14,fontWeight:700,color:T.text,margin:0}}>📈 Andamento Fatturato — Confronto Anni</h3>
+                  <div style={{fontSize:11,color:T.textL,marginTop:2}}>Cumulativo YTD per anno · clic sui badge per attivare/disattivare gli anni</div>
+                </div>
+                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                  <select value={tipoBorsa} onChange={e=>setTipoBorsa(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:11,background:'#fff'}}>
+                    <option value="lordo">€ Lordo</option>
+                    <option value="imponibile">€ Imponibile</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* KPI YoY */}
+              {yoyDelta!==null && (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+                  <div style={{background:'#f8fafc',borderRadius:8,padding:10}}>
+                    <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>YTD {annoCur}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:colorePerAnno(annoCur)}}>{fmt(ytdCur)}</div>
+                    <div style={{fontSize:10,color:T.textL}}>fino a {mesiLab[meseCorrente]}</div>
+                  </div>
+                  <div style={{background:'#f8fafc',borderRadius:8,padding:10}}>
+                    <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>YTD {annoPrev}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:colorePerAnno(annoPrev)}}>{fmt(ytdPrev)}</div>
+                    <div style={{fontSize:10,color:T.textL}}>stesso periodo</div>
+                  </div>
+                  <div style={{background:yoyDelta>=0?'#f0fdf4':'#fef2f2',borderRadius:8,padding:10}}>
+                    <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Var. YoY</div>
+                    <div style={{fontSize:18,fontWeight:800,color:yoyDelta>=0?T.green:T.red}}>{yoyDelta>=0?'▲':'▼'} {Math.abs(yoyDelta).toFixed(1)}%</div>
+                    <div style={{fontSize:10,color:T.textL}}>{fmt(ytdCur-ytdPrev)} {yoyDelta>=0?'in più':'in meno'}</div>
+                  </div>
+                  <div style={{background:'#f8fafc',borderRadius:8,padding:10}}>
+                    <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Mese corrente {mesiLab[meseCorrente]} {annoCur}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:T.text}}>{fmt(dataPerAnno[annoCur]?dataPerAnno[annoCur][meseCorrente]:0)}</div>
+                    <div style={{fontSize:10,color:T.textL}}>fatturato mese</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Selettore anni con badge */}
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+                {anniDisponibili.map(y => {
+                  const attivo = annoComp.has(y);
+                  return (
+                    <button key={y} onClick={()=>{
+                      setAnnoComp(prev => {
+                        const next = new Set(prev);
+                        if(next.has(y)) next.delete(y); else next.add(y);
+                        return next;
+                      });
+                    }} style={{
+                      border:`2px solid ${attivo?colorePerAnno(y):T.border}`,
+                      background:attivo?colorePerAnno(y):'#fff',
+                      color:attivo?'#fff':T.textL,
+                      padding:'4px 12px',borderRadius:20,fontSize:12,fontWeight:700,cursor:'pointer',
+                      display:'flex',gap:6,alignItems:'center'
+                    }}>
+                      <span style={{display:'inline-block',width:8,height:8,borderRadius:'50%',background:attivo?'#fff':colorePerAnno(y)}}/>
+                      {y}
+                      <span style={{fontSize:10,opacity:.85,fontWeight:500}}>· {fmt(totaliPerAnno.find(t=>t.y===y)?.tot||0)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* SVG Chart */}
+              {anniVisibili.length===0 ? (
+                <div style={{padding:30,textAlign:'center',color:T.textL,fontSize:13,background:'#f8fafc',borderRadius:8}}>
+                  Seleziona almeno un anno per visualizzare il grafico.
+                </div>
+              ) : (
+                <div style={{position:'relative',background:'#fafbfc',borderRadius:8,padding:8,overflow:'auto'}}>
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',height:'auto',maxHeight:300}}>
+                    {/* Grid orizzontale + asse Y */}
+                    {[0,1,2,3,4,5].map(i=>{
+                      const v = stepY*i;
+                      const y = yVal(v);
+                      return (
+                        <g key={i}>
+                          <line x1={padL} y1={y} x2={W-padR} y2={y} stroke="#e5e7eb" strokeDasharray={i===0?'':'3 3'}/>
+                          <text x={padL-8} y={y+4} textAnchor="end" fontSize="10" fill="#94a3b8">{(v/1000).toFixed(0)}k</text>
+                        </g>
+                      );
+                    })}
+                    {/* Asse X mesi */}
+                    {mesiLab.map((m,i)=>(
+                      <text key={i} x={xMese(i)} y={H-padB+18} textAnchor="middle" fontSize="10" fill="#64748b" fontWeight={i===meseCorrente?700:400}>{m}</text>
+                    ))}
+                    {/* Linea mese corrente */}
+                    <line x1={xMese(meseCorrente)} y1={padT} x2={xMese(meseCorrente)} y2={H-padB} stroke="#cbd5e1" strokeDasharray="4 3"/>
+                    <text x={xMese(meseCorrente)+4} y={padT+12} fontSize="9" fill="#94a3b8" fontStyle="italic">oggi</text>
+
+                    {/* Linee per anno */}
+                    {anniVisibili.sort((a,b)=>a-b).map(y => {
+                      const cum = cumPerAnno[y];
+                      const isAnnoCur = y === annoCur;
+                      // Solo punti fino a meseCorrente per anno corrente, tutti per anni passati
+                      const maxIdx = isAnnoCur ? meseCorrente : 11;
+                      const points = cum.slice(0, maxIdx+1).map((v,i) => `${xMese(i)},${yVal(v)}`).join(' ');
+                      return (
+                        <g key={y}>
+                          <polyline points={points} fill="none" stroke={colorePerAnno(y)} strokeWidth={isAnnoCur?3:2} strokeLinecap="round" strokeLinejoin="round" opacity={isAnnoCur?1:0.7}/>
+                          {cum.slice(0, maxIdx+1).map((v,i)=>(
+                            <circle key={i} cx={xMese(i)} cy={yVal(v)} r={hoverPt && hoverPt.anno===y && hoverPt.mese===i ? 6 : 3.5} fill={colorePerAnno(y)} stroke="#fff" strokeWidth={1.5}
+                              onMouseEnter={()=>setHoverPt({anno:y,mese:i,val:v,delta:dataPerAnno[y][i]})}
+                              onMouseLeave={()=>setHoverPt(null)}
+                              style={{cursor:'pointer'}}/>
+                          ))}
+                          {/* Etichetta finale */}
+                          {cum[maxIdx]>0 && (
+                            <text x={xMese(maxIdx)+8} y={yVal(cum[maxIdx])+3} fontSize="10" fontWeight="700" fill={colorePerAnno(y)}>{(cum[maxIdx]/1000).toFixed(0)}k</text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                  {/* Tooltip hover */}
+                  {hoverPt && (
+                    <div style={{position:'absolute',top:8,right:12,background:'#fff',border:`2px solid ${colorePerAnno(hoverPt.anno)}`,borderRadius:8,padding:'8px 12px',boxShadow:'0 4px 12px rgba(0,0,0,.1)',fontSize:12,minWidth:180}}>
+                      <div style={{fontWeight:700,color:colorePerAnno(hoverPt.anno),fontSize:13,marginBottom:4}}>{mesiLab[hoverPt.mese]} {hoverPt.anno}</div>
+                      <div style={{display:'flex',justifyContent:'space-between',gap:14}}>
+                        <span style={{color:T.textL}}>Mese:</span><b>{fmt(hoverPt.delta)}</b>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',gap:14}}>
+                        <span style={{color:T.textL}}>Cumulato YTD:</span><b style={{color:colorePerAnno(hoverPt.anno)}}>{fmt(hoverPt.val)}</b>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>);
+          })()}
+        </Card>
+      </div>
 
       {/* Barre avanzamento SAL + Fatturato */}
       <div style={{marginBottom:18}}>
