@@ -485,6 +485,7 @@ async function loadFromSupabase() {
     regolePagamento: c.regole_pagamento||null,
     updatedAt: c.updated_at||c.created_at||null,
     contratto: null, criticita: c.criticita||[],
+    documenti: Array.isArray(c.documenti)?c.documenti:[],
   }));
   // LINK DINAMICO: collega ogni fattura alla commessa giusta via oggetto
   linkFatture();
@@ -2205,6 +2206,92 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         </div>
       )}
 
+
+      {/* 📎 DOCUMENTI (contratto + extra) - sempre visibile, upload diretto */}
+      {(() => {
+        const docs = [
+          ...(c.contratto ? [{...c.contratto, tipo:'Contratto principale', _isContratto:true}] : []),
+          ...(Array.isArray(c.documenti) ? c.documenti : []),
+        ];
+        const fmtSize = (b) => b<1024 ? `${b} B` : b<1024*1024 ? `${(b/1024).toFixed(0)} KB` : `${(b/1024/1024).toFixed(1)} MB`;
+        const handleUploadDoc = async (e) => {
+          const file = e.target.files?.[0]; if(!file) return;
+          const path = `${c.id}/doc_${Date.now()}_${file.name.replace(/[^\w.-]/g,'_')}`;
+          try {
+            const r = await fetch(`${SB_URL}/storage/v1/object/contratti/${path}`, {
+              method:'POST',
+              headers:{ 'Authorization':`Bearer ${SB_KEY}`, 'apikey':SB_KEY, 'x-upsert':'true', 'Content-Type':file.type },
+              body: file,
+            });
+            if(r.ok) {
+              const url = `${SB_URL}/storage/v1/object/public/contratti/${path}`;
+              const tipo = window.prompt('Tipo documento (Specifica tecnica / DDT / Conferma / Allegato / Altro):', 'Specifica tecnica') || 'Allegato';
+              const newDoc = { name:file.name, url, size:file.size, path, tipo, data: new Date().toISOString() };
+              const newDocs = [...(c.documenti||[]), newDoc];
+              if(updateCommessa) updateCommessa(c.id, { documenti: newDocs });
+              alert(`Documento "${file.name}" caricato come ${tipo}`);
+            } else { alert('Errore upload (codice '+r.status+')'); }
+          } catch(err){ alert('Errore: '+err.message); }
+          e.target.value='';
+        };
+        const removeDoc = (idx, doc) => {
+          if(doc._isContratto) {
+            if(window.confirm('Rimuovere il contratto principale?')) {
+              if(updateCommessa) updateCommessa(c.id, { contratto: null });
+            }
+            return;
+          }
+          if(!window.confirm(`Rimuovere "${doc.name}"?`)) return;
+          const filtered = (c.documenti||[]).filter((_,i)=>i!==(idx-(c.contratto?1:0)));
+          if(updateCommessa) updateCommessa(c.id, { documenti: filtered });
+        };
+        return (
+          <Card style={{marginBottom:18,padding:0,borderLeft:`4px solid #0369a1`}}>
+            <div style={{padding:'10px 16px',background:'#f0f9ff',borderBottom:`1px solid #bae6fd`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#0369a1'}}>📎 Documenti commessa <span style={{fontWeight:400,color:T.textL,marginLeft:6,fontSize:11}}>({docs.length} {docs.length===1?'file':'files'})</span></div>
+              <label style={{background:'#0369a1',color:'#fff',padding:'6px 12px',borderRadius:5,fontSize:12,cursor:'pointer',fontWeight:600,display:'inline-flex',alignItems:'center',gap:4}}>
+                ➕ Aggiungi documento
+                <input type="file" accept="application/pdf,image/*,.doc,.docx" style={{display:'none'}} onChange={handleUploadDoc}/>
+              </label>
+            </div>
+            {docs.length===0 ? (
+              <div style={{padding:'20px',textAlign:'center',color:T.textL,fontSize:13}}>
+                Nessun documento allegato. Click "➕ Aggiungi documento" per caricare contratti, specifiche tecniche, DDT, allegati.
+              </div>
+            ) : (
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Tipo</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Nome file</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>Dimensione</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Caricato</th>
+                    <th style={{padding:'8px 12px',textAlign:'center'}}>Azioni</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {docs.map((d,i)=>(
+                    <tr key={i} style={{borderTop:`1px solid ${T.border}`}}>
+                      <td style={{padding:'8px 12px'}}>
+                        <span style={{background:d._isContratto?'#fffbeb':T.blueL,color:d._isContratto?'#92400e':T.blue,padding:'2px 8px',borderRadius:10,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}}>
+                          {d._isContratto?'📜 CONTRATTO':d.tipo||'📄 Allegato'}
+                        </span>
+                      </td>
+                      <td style={{padding:'8px 12px',fontWeight:600,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={d.name}>{d.name}</td>
+                      <td style={{padding:'8px 12px',textAlign:'right',color:T.textL,fontSize:11}}>{d.size?fmtSize(d.size):'—'}</td>
+                      <td style={{padding:'8px 12px',color:T.textL,fontSize:11}}>{d.data?fmtDate(d.data.slice(0,10)):'—'}</td>
+                      <td style={{padding:'8px 12px',textAlign:'center',whiteSpace:'nowrap'}}>
+                        {d.url && <button onClick={()=>window.open(d.url,'_blank')} style={{background:'#0369a1',color:'#fff',border:'none',padding:'4px 10px',borderRadius:4,fontSize:11,cursor:'pointer',marginRight:6,fontWeight:600}}>👁 Apri</button>}
+                        <button onClick={()=>removeDoc(i,d)} style={{background:'#fff',color:T.red,border:`1px solid ${T.red}`,padding:'4px 10px',borderRadius:4,fontSize:11,cursor:'pointer'}}>🗑</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* RIEPILOGO REGOLE PAGAMENTO (sempre visibile in alto) */}
       {(c.regolePagamento?.milestone||[]).length>0&&(()=>{
@@ -7103,6 +7190,7 @@ const App = ()=>{
         acconto: c.acconto, garanzia: c.garanzia,
         comp_enabled: c.compEnabled,
         regole_pagamento: c.regolePagamento||null,
+        documenti: c.documenti||[],
       };
       await fetch(`${SB_URL}/rest/v1/commesse`,{
         method:'POST', headers: SB_H_WRITE, body: JSON.stringify(payload),
@@ -7188,6 +7276,7 @@ const App = ()=>{
         acconto: c.acconto, garanzia: c.garanzia,
         comp_enabled: c.compEnabled,
         regole_pagamento: c.regolePagamento||null,
+        documenti: c.documenti||[],
       };
       await fetch(`${SB_URL}/rest/v1/commesse?id=eq.${id}`, {
         method:'PATCH', headers: SB_H_WRITE, body: JSON.stringify(payload),
