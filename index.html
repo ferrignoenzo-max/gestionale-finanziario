@@ -1661,27 +1661,139 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
               </div>
             )}
             {contratto && (
-              <button type="button" onClick={()=>{
-                if(/azimut|benetti/i.test(cliente)) {
-                  const tpl = (D.templateRegole||[]).find(t=>/benetti/i.test(t.nome));
-                  if(tpl && window.confirm(`Rilevato cliente Azimut Benetti.\nApplicare template "${tpl.nome}" (${tpl.regolePagamento.milestone.length} rate)?`)) {
-                    const newMs = (tpl.regolePagamento.milestone||[]).map(m=>({...m, id:`ms-${Date.now()}-${Math.random().toString(36).slice(2,7)}`}));
-                    setMilestone(newMs);
-                    alert(`Template Benetti applicato. Verifica gli importi e le date.`);
+              <button type="button" onClick={async ()=>{
+                const apiKey = localStorage.getItem('gemini_key');
+                if(!apiKey) return alert('⚠ Per usare l\'autocompilazione AI imposta prima la API key Gemini.\nApri il pannello "🤖 Chiedi all\'AI" in alto a destra → ⚙ Impostazioni.');
+                if(!contratto.url) return alert('Contratto non accessibile (URL mancante).');
+
+                // 1. Scarica PDF e convertilo in base64
+                const btn = window.event?.target;
+                if(btn) { btn.disabled = true; btn.textContent = '⏳ Scarico PDF...'; }
+                let base64;
+                try {
+                  const r = await fetch(contratto.url);
+                  const blob = await r.blob();
+                  base64 = await new Promise((res, rej)=>{
+                    const fr = new FileReader();
+                    fr.onload = ()=> res(fr.result.split(',')[1]);
+                    fr.onerror = rej;
+                    fr.readAsDataURL(blob);
+                  });
+                } catch(err){ if(btn){btn.disabled=false; btn.textContent='🤖 Auto-compila da PDF (AI)';} return alert('Errore download PDF: '+err.message); }
+
+                if(btn) btn.textContent = '⏳ Gemini analizza il contratto...';
+
+                // 2. Prompt strutturato per estrazione
+                const tipi = ['acconto','sal','saldo','garanzia','fideiussione','altro'];
+                const trig = ['inizio_lavori','sal_mensile','fine_lavori','x_mesi_dopo_fine','avanzamento_perc','altro'];
+                const prompt = `Sei un assistente che estrae dati da contratti e ordini italiani del settore navale (Azimut Benetti, Sanlorenzo, TISG The Italian Sea Group).
+
+Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, niente backtick) con questa struttura:
+
+{
+  "codice_commessa": "es. BX107 o C602 o SLA044/167 (se non chiaro: null)",
+  "nr_ordine": "es. MYOA22019935/APP (numero ordine cliente univoco)",
+  "cliente": "ragione sociale completa cliente/committente",
+  "nome": "descrizione lavori breve (es. 'Impianti idraulici tubolature carpenteria')",
+  "importo_totale": numero in euro senza separatori (es. 770000),
+  "data_ordine": "YYYY-MM-DD",
+  "data_consegna": "YYYY-MM-DD se presente",
+  "milestone": [
+    {
+      "titolo": "es. Acconto inizio lavori",
+      "tipo": uno tra ${JSON.stringify(tipi)},
+      "perc": numero da 0 a 100,
+      "trigger": uno tra ${JSON.stringify(trig)},
+      "triggerExtra": "stringa numerica solo se trigger=x_mesi_dopo_fine o avanzamento_perc, es '12'",
+      "modalita_pagamento_label": "es. 'RI.BA. 60gg DFFM +10gg' come scritto nel contratto",
+      "condizioni": "condizioni testuali (firma documenti, accettazione, remarks ODP, ecc.)",
+      "fideiussione_alt_perc": numero solo se è prevista alternativa fideiussione (es. 5),
+      "fideiussione_alt_mesi": numero solo se è prevista alternativa fideiussione (es. 12)
+    }
+  ],
+  "garanzia_perc": numero perc trattenuta su fattura (se non c'è milestone garanzia) o null,
+  "note_estrazione": "1 frase con quanto sei sicuro dei dati e cosa potrebbe mancare"
+}
+
+Esempio output per un Benetti standard (10/84/3/3): le milestone sono 4, l'ultima ha fideiussione_alt_perc=5 mesi=12.`;
+
+                const model = localStorage.getItem('gemini_model') || 'gemini-2.5-flash';
+                try {
+                  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                      contents: [{
+                        parts: [
+                          { text: prompt },
+                          { inline_data: { mime_type: 'application/pdf', data: base64 } }
+                        ]
+                      }]
+                    })
+                  });
+                  const data = await r.json();
+                  if(!r.ok) throw new Error(data?.error?.message||'API error');
+                  let txt = data?.candidates?.[0]?.content?.parts?.[0]?.text||'';
+                  // Pulisci eventuale wrapping ```json
+                  txt = txt.replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+                  const ext = JSON.parse(txt);
+
+                  // 3. Mostra anteprima e conferma
+                  const summary = [
+                    ext.codice_commessa?`Codice: ${ext.codice_commessa}`:null,
+                    ext.nr_ordine?`N° Ordine: ${ext.nr_ordine}`:null,
+                    ext.cliente?`Cliente: ${ext.cliente}`:null,
+                    ext.importo_totale?`Importo: ${ext.importo_totale.toLocaleString('it-IT')} €`:null,
+                    ext.data_ordine?`Data inizio: ${ext.data_ordine}`:null,
+                    ext.data_consegna?`Data fine: ${ext.data_consegna}`:null,
+                    ext.milestone?.length?`Milestone: ${ext.milestone.length} (${ext.milestone.map(m=>m.perc+'%').join('+')})`:null,
+                  ].filter(Boolean).join('\n');
+                  if(!window.confirm(`L'AI ha estratto questi dati dal contratto:\n\n${summary}\n\n${ext.note_estrazione||''}\n\nApplicarli al form? (i campi già compilati verranno sovrascritti)`)) {
+                    if(btn){btn.disabled=false; btn.textContent='🤖 Auto-compila da PDF (AI)';}
+                    return;
                   }
-                } else if(/sea\s*group|tisg/i.test(cliente)) {
-                  alert('Cliente TISG rilevato. Template TISG ancora da configurare — usa "Salva come template" su una commessa pilota e poi rilancia.');
-                } else if(/sanlorenzo|san\s*lorenzo/i.test(cliente)) {
-                  alert('Cliente Sanlorenzo rilevato. Template Sanlorenzo ancora da configurare.');
-                } else {
-                  alert('Cliente non riconosciuto per auto-compilazione. Imposta il cliente prima.');
+
+                  // 4. Pre-fill state
+                  if(ext.nome) setNome(ext.nome);
+                  if(ext.nr_ordine) setNrOrdine(ext.nr_ordine);
+                  if(ext.cliente) setCliente(ext.cliente);
+                  if(ext.importo_totale) setImporto(String(ext.importo_totale));
+                  if(ext.data_ordine) setDataInizio(ext.data_ordine);
+                  if(ext.data_consegna) setDataFine(ext.data_consegna);
+                  if(Array.isArray(ext.milestone) && ext.milestone.length>0) {
+                    // Match modalità di pagamento esistenti per nome (best-effort)
+                    const mps = D.modalitaPagamento||[];
+                    const findMP = (label) => {
+                      if(!label) return '';
+                      const norm = String(label).toLowerCase().replace(/\s+/g,'');
+                      const m = mps.find(mp => mp.nome.toLowerCase().replace(/\s+/g,'')===norm)
+                            || mps.find(mp => norm.includes(mp.nome.toLowerCase().replace(/\s+/g,'').slice(0,8)));
+                      return m?.id || '';
+                    };
+                    const newMs = ext.milestone.map((m,idx)=>({
+                      id: `ms-ai-${Date.now()}-${idx}`,
+                      titolo: m.titolo||'',
+                      tipo: tipi.includes(m.tipo) ? m.tipo : 'altro',
+                      perc: m.perc||0,
+                      trigger: trig.includes(m.trigger) ? m.trigger : 'altro',
+                      triggerExtra: m.triggerExtra ? String(m.triggerExtra) : '',
+                      modalitaPagamentoId: findMP(m.modalita_pagamento_label),
+                      condizioni: m.condizioni || '',
+                      fideiussioneAlt: { attiva: !!m.fideiussione_alt_perc, perc: m.fideiussione_alt_perc||5, mesi: m.fideiussione_alt_mesi||12 },
+                    }));
+                    setMilestone(newMs);
+                  }
+                  if(btn){btn.disabled=false; btn.textContent='🤖 Auto-compila da PDF (AI)';}
+                  alert(`✓ Form pre-compilato. Verifica i dati e poi clicca "Salva modifiche".\n\nNota: le modalità di pagamento sono state matchate per nome dalla libreria. Se non trovate, imposta manualmente nei dropdown delle milestone.`);
+                } catch(err){
+                  if(btn){btn.disabled=false; btn.textContent='🤖 Auto-compila da PDF (AI)';}
+                  alert('Errore AI: '+err.message+'\n\nNota: per file molto grandi (>20MB) o scansioni di bassa qualità l\'estrazione può fallire. Riprova o compila manualmente.');
                 }
-              }} style={{marginTop:8,background:'#0369a1',color:'#fff',border:'none',padding:'6px 12px',borderRadius:5,fontSize:12,cursor:'pointer',fontWeight:600}}>
-                🤖 Auto-compila regole dal contratto (per cliente)
+              }} style={{marginTop:8,background:'linear-gradient(135deg,#0369a1,#7c3aed)',color:'#fff',border:'none',padding:'8px 14px',borderRadius:5,fontSize:12,cursor:'pointer',fontWeight:600,width:'100%'}}>
+                🤖 Auto-compila da PDF (AI Gemini)
               </button>
             )}
             <div style={{fontSize:10,color:T.textL,fontStyle:'italic',marginTop:6}}>
-              Estrazione testo automatica dei dati (importo, ordine, scadenze) — prossima iterazione.
+              L'AI legge il PDF (anche scansionato) ed estrae automaticamente: codice, n° ordine, importo, date, milestone di pagamento.
             </div>
           </div>
         </div>
