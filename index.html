@@ -1795,15 +1795,30 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
   const scadute=D.fattureAttive.filter(f=>f.commessa===c.id&&f.stato==='Scaduta');
   const extraC=D.extra.filter(e=>e.commessa===c.id);
   const salC=D.sal.filter(s=>s.commessa===c.id);
-  // SAL produttivo dinamico: acconto + SAL fatturati (esclude extra/saldo/garanzia)
-  // Se c.salProdAttivoTot esiste e > 0 lo usa (override manuale), altrimenti calcola dalle fatture
+  // SAL produttivo dinamico: acconto + SAL fatturati (esclude extra/saldo/garanzia/altri ordini)
   const _impOf = (f)=> (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
   const _isExtra = (f)=> /\bextra\b|\bbap\b/i.test(f.oggetto||'');
   const _isSaldo = (f)=> f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
   const _isGaranzia = (f)=> f.tipoRifOverride==='Garanzia' || /garanzia|svincolo/i.test(f.oggetto||'');
+  // Estrae nr ordine dall'oggetto fattura
+  const _estraiOrdine = (s)=>{
+    if(!s) return '';
+    const m = String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i);
+    return m ? m[0].toUpperCase().replace(/\s+/g,'') : '';
+  };
+  // Verifica se la fattura appartiene all'ordine principale della commessa
+  // - Se la commessa ha nrOrdine: la fattura DEVE avere quel nrOrdine (ordini diversi = NO SAL)
+  // - Se la commessa non ha nrOrdine: passa qualunque fattura con codice match
+  const _ordPrincipale = c.nrOrdine ? c.nrOrdine.toUpperCase().replace(/\s+/g,'') : '';
+  const _isMainOrder = (f) => {
+    if(!_ordPrincipale) return true;
+    const ordF = _estraiOrdine(f.oggetto);
+    if(!ordF) return true; // fatture senza nr ordine identificabile passano (decisione: dubbio→include)
+    return ordF === _ordPrincipale;
+  };
   const salProdAttivoTotDyn = c.salProdAttivoTot && c.salProdAttivoTot>0
     ? c.salProdAttivoTot
-    : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f)).reduce((a,f)=>a+_impOf(f),0);
+    : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f)).reduce((a,f)=>a+_impOf(f),0);
   const salProdPct=c.importoContrattuale>0?Math.round((salProdAttivoTotDyn/c.importoContrattuale)*100):0;
   const tabs=['pagamenti','sal','fatture','extra','compensazioni','regole'];
 
@@ -1951,10 +1966,26 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
         const fattAttive = D.fattureAttive.filter(f=>f.commessa===c.id);
         // Imponibile esclude IVA e bollo. Lordo = imponibile + IVA + bollo (~2€)
         const impOf = (f) => (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
-        // Distingue fatture commessa principale (SAL+acconto+saldo+garanzia) da fatture EXTRA/BAP
+        // Distingue fatture commessa principale da EXTRA/BAP
         const isExtra = (f) => /\bextra\b|\bbap\b/i.test(f.oggetto||'');
-        const fattExtra = fattAttive.filter(isExtra);
-        const fattCommessa = fattAttive.filter(f=>!isExtra(f));
+        // Estrai e confronta numero ordine: solo fatture col nrOrdine principale = SAL del contratto
+        const estraiOrdine = (s)=>{
+          if(!s) return '';
+          const m = String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i);
+          return m ? m[0].toUpperCase().replace(/\s+/g,'') : '';
+        };
+        const ordPrincipale = c.nrOrdine ? c.nrOrdine.toUpperCase().replace(/\s+/g,'') : '';
+        const isMainOrder = (f) => {
+          if(!ordPrincipale) return true;
+          const ordF = estraiOrdine(f.oggetto);
+          if(!ordF) return true;
+          return ordF === ordPrincipale;
+        };
+        // Categorizza ogni fattura
+        // - Commessa = !extra E ordine principale (o senza ordine identificabile)
+        // - Extra = ha "EXTRA"/"BAP" OPPURE ha un ordine diverso da quello principale
+        const fattCommessa = fattAttive.filter(f=>!isExtra(f) && isMainOrder(f));
+        const fattExtra = fattAttive.filter(f=>isExtra(f) || (!isExtra(f) && !isMainOrder(f)));
         const totFattCommessa = fattCommessa.reduce((a,f)=>a+impOf(f),0);
         const totFattExtra = fattExtra.reduce((a,f)=>a+impOf(f),0);
         const totFatt = totFattCommessa + totFattExtra;
@@ -1964,12 +1995,14 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
 
         // Match euristico: associa fatture a milestone in base al tipoRif/oggetto
         const fattureMS = (m) => {
-          // Niente Extra/BAP nelle milestone del contratto base — vanno gestite come commesse separate
+          // Niente Extra/BAP nelle milestone del contratto base
           const noExtra = (f) => !/\bextra\b|\bbap\b/i.test(f.oggetto||'');
-          if(m.tipo==='acconto')  return fattAttive.filter(f=> noExtra(f) && (f.tipoRif==='Acconto'||/acconto|\bacc\b\.?/i.test(f.oggetto||'')));
-          if(m.tipo==='sal')      return fattAttive.filter(f=> noExtra(f) && (f.tipoRifOverride==='SAL' || (f.tipoRif!=='Acconto' && f.tipoRif!=='Saldo' && f.tipoRif!=='Garanzia' && !/saldo|garanzia/i.test(f.oggetto||''))) && f.tipoRif!=='Acconto');
-          if(m.tipo==='saldo')    return fattAttive.filter(f=> noExtra(f) && (f.tipoRifOverride==='Saldo'||/saldo|fine\s*lavori/i.test(f.oggetto||'')));
-          if(m.tipo==='garanzia') return fattAttive.filter(f=> noExtra(f) && (f.tipoRifOverride==='Garanzia'||/garanzia|svincolo/i.test(f.oggetto||'')));
+          // Solo fatture con il numero ordine principale (esclude ordini distinti)
+          const onlyMainOrder = (f) => isMainOrder(f);
+          if(m.tipo==='acconto')  return fattAttive.filter(f=> noExtra(f) && onlyMainOrder(f) && (f.tipoRif==='Acconto'||/acconto|\bacc\b\.?/i.test(f.oggetto||'')));
+          if(m.tipo==='sal')      return fattAttive.filter(f=> noExtra(f) && onlyMainOrder(f) && (f.tipoRifOverride==='SAL' || (f.tipoRif!=='Acconto' && f.tipoRif!=='Saldo' && f.tipoRif!=='Garanzia' && !/saldo|garanzia/i.test(f.oggetto||''))) && f.tipoRif!=='Acconto');
+          if(m.tipo==='saldo')    return fattAttive.filter(f=> noExtra(f) && onlyMainOrder(f) && (f.tipoRifOverride==='Saldo'||/saldo|fine\s*lavori/i.test(f.oggetto||'')));
+          if(m.tipo==='garanzia') return fattAttive.filter(f=> noExtra(f) && onlyMainOrder(f) && (f.tipoRifOverride==='Garanzia'||/garanzia|svincolo/i.test(f.oggetto||'')));
           return [];
         };
         // Helper: estrae numero ordine principale dall'oggetto
@@ -3105,14 +3138,17 @@ const calcBarreCommessa = (c)=>{
   // ─────────────────────────────────────────────────────────────────
   const contr      = c.importoContrattuale || 1;
   // SAL produttivo dinamico: se c.salProdAttivoTot non popolato, calcolalo dalle fatture
-  // (acconto + SAL fatturati, escludendo extra/saldo/garanzia)
+  // (acconto + SAL fatturati, escludendo extra/saldo/garanzia/altri ordini)
   let salAbs = c.salProdAttivoTot || 0;
   if(salAbs===0 && Array.isArray(D.fattureAttive)) {
     const isExtra = (f)=> /\bextra\b|\bbap\b/i.test(f.oggetto||'');
     const isSaldo = (f)=> f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
     const isGaranzia = (f)=> f.tipoRifOverride==='Garanzia' || /garanzia|svincolo/i.test(f.oggetto||'');
     const impOf = (f)=> (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
-    salAbs = D.fattureAttive.filter(f=>f.commessa===c.id && !isExtra(f) && !isSaldo(f) && !isGaranzia(f)).reduce((a,f)=>a+impOf(f),0);
+    const ordPrinc = c.nrOrdine ? c.nrOrdine.toUpperCase().replace(/\s+/g,'') : '';
+    const estrOrd = (s)=>{ if(!s) return ''; const m=String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i); return m?m[0].toUpperCase().replace(/\s+/g,''):''; };
+    const isMainOrd = (f) => { if(!ordPrinc) return true; const o=estrOrd(f.oggetto); return !o || o===ordPrinc; };
+    salAbs = D.fattureAttive.filter(f=>f.commessa===c.id && !isExtra(f) && !isSaldo(f) && !isGaranzia(f) && isMainOrd(f)).reduce((a,f)=>a+impOf(f),0);
   }
   const salRatio   = Math.min(1, salAbs / contr);          // SAL in [0,1]
   const salPct     = salRatio * 100;
