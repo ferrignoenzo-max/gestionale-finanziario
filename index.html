@@ -2065,6 +2065,30 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
         </div>
       )}
 
+      {/* ─── 4 KPI riepilogo finanziario - sempre visibili in alto ─── */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Importo commessa</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.text}}>{fmt(c.importoContrattuale||0)}</div>
+          <div style={{fontSize:10,color:T.textL}}>contratto base</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Commessa (SAL)</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(salProdAttivoTotDyn)}</div>
+          <div style={{fontSize:10,color:T.textL}}>{c.importoContrattuale>0?(salProdAttivoTotDyn/c.importoContrattuale*100).toFixed(1):0}% del contratto · {fattureSALDyn.length} fatt.</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.purple}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Extra</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fmt(totExtraDyn)}</div>
+          <div style={{fontSize:10,color:T.textL}}>fuori contratto · {fattureExtraDyn.length} fatt.</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(Math.max(0,(c.importoContrattuale||0)-salProdAttivoTotDyn))}</div>
+          <div style={{fontSize:10,color:T.textL}}>residuo contratto base</div>
+        </div>
+      </div>
+
       {/* RIEPILOGO REGOLE PAGAMENTO (sempre visibile in alto) */}
       {(c.regolePagamento?.milestone||[]).length>0&&(()=>{
         const tipoIcon={acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
@@ -2160,29 +2184,8 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
 
         return (
           <div style={{display:'flex',flexDirection:'column',gap:14}}>
-            {/* KPI riepilogo */}
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
-                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Importo commessa</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.text}}>{fmt(importoCommessa)}</div>
-                <div style={{fontSize:10,color:T.textL}}>contratto base</div>
-              </div>
-              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
-                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Commessa (SAL)</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(totFattCommessa)}</div>
-                <div style={{fontSize:10,color:T.textL}}>{importoCommessa>0?(totFattCommessa/importoCommessa*100).toFixed(1):0}% del contratto · {fattCommessa.length} fatt.</div>
-              </div>
-              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.purple}`}}>
-                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Extra</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fmt(totFattExtra)}</div>
-                <div style={{fontSize:10,color:T.textL}}>fuori contratto · {fattExtra.length} fatt.</div>
-              </div>
-              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
-                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(daFatturare)}</div>
-                <div style={{fontSize:10,color:T.textL}}>residuo contratto base</div>
-              </div>
-            </div>
+            {/* KPI riepilogo già mostrato in alto pagina – qui solo nota */}
+            <div style={{fontSize:11,color:T.textL,textAlign:'center',padding:'4px 0'}}>I 4 KPI riepilogo (Importo / Fatturato SAL / Extra / Da fatturare) sono già visibili in alto pagina ↑</div>
 
             {/* Progress bar avanzamento commessa principale (esclude extra) */}
             <Card>
