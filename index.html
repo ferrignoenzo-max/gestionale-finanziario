@@ -2340,16 +2340,36 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         <KPICard label="Da pagare netto" value={fmt(daPag)} color={T.red} onClick={()=>openModal('daPagare')} />
         <KPICard label="Saldo commessa" value={fmt(saldo)} sub="Incassato – pagato" color={saldo>=0?T.blue:T.red} />
         <KPICard label="Garanzia maturata" value={c.garanzia?fmt(c.garanzia.nonIncassata||c.garanzia.residuo):'Nessuna'} sub={c.garanzia?`Svincolo: ${fmtDate(c.garanzia.svincolo)}`:''}  color={T.amber} onClick={()=>openModal('garanzie')} />
+        {/* ⭐ Totale Fatturato Commessa + Extra — sostituisce lo spazio bianco accanto a Garanzia */}
+        <div style={{background:'linear-gradient(135deg,#f0fdf4 0%,#faf5ff 100%)',borderRadius:10,padding:16,boxShadow:T.sh,borderLeft:`4px solid #0d9488`,gridColumn:'span 4',display:'flex',justifyContent:'space-between',alignItems:'center',gap:20}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:T.textL,textTransform:'uppercase',letterSpacing:.5,marginBottom:4}}>Totale Fatturato Commessa (SAL + Extra)</div>
+            <div style={{fontSize:30,fontWeight:800,color:'#0d9488'}}>{fmt(salProdAttivoTotDyn+totExtraDyn)}</div>
+            <div style={{fontSize:11,color:T.textL,marginTop:2}}>
+              {c.importoContrattuale>0?<><b>{((salProdAttivoTotDyn+totExtraDyn)/c.importoContrattuale*100).toFixed(1)}%</b> sul contratto base · </>:''}
+              {fattureSALDyn.length+fattureExtraDyn.length} fatture in totale
+            </div>
+          </div>
+          <div style={{display:'flex',gap:18,fontSize:11}}>
+            <div style={{textAlign:'right',paddingRight:14,borderRight:`1px solid ${T.border}`}}>
+              <div style={{color:T.textL,fontSize:10,textTransform:'uppercase',fontWeight:600}}>SAL contratto</div>
+              <div style={{color:T.green,fontSize:16,fontWeight:700}}>{fmt(salProdAttivoTotDyn)}</div>
+              <div style={{color:T.textL,fontSize:10}}>{fattureSALDyn.length} fatt.</div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{color:T.textL,fontSize:10,textTransform:'uppercase',fontWeight:600}}>Extra fuori contratto</div>
+              <div style={{color:T.purple,fontSize:16,fontWeight:700}}>{fmt(totExtraDyn)}</div>
+              <div style={{color:T.textL,fontSize:10}}>{fattureExtraDyn.length} fatt.</div>
+            </div>
+          </div>
+        </div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginBottom:8}}>
         <KPICard label="Acconto residuo" value={c.acconto?fmt(c.acconto.residuo):'—'} sub={c.acconto?`Recuperato: ${fmt(c.acconto.recuperato)} · ${c.acconto.nota||''}`:c.tipoLavoro==='Ordine'?'Ordine – nessun acconto':'Nessun acconto'} color={T.purple} />
         <KPICard label="Fatture scadute" value={scadute.length} color={scadute.length>0?T.red:T.green} alert={scadute.length>0} onClick={()=>openModal('scadute')} />
         <KPICard label="Criticità" value={(c.criticita||[]).length} color={(c.criticita||[]).length>0?T.red:T.green} alert={(c.criticita||[]).length>0} onClick={()=>openModal('criticita',c)} />
       </div>
-      {/* Totale fatturato in fondo, discreto - è un numero da leggere con cautela perché somma SAL contrattuali e Extra fuori contratto */}
-      <div style={{textAlign:'right',fontSize:11,color:T.textL,marginBottom:18,fontStyle:'italic'}}>
-        Totale fatturato (SAL + Extra): <b style={{color:T.text}}>{fmt(salProdAttivoTotDyn+totExtraDyn)}</b>
-      </div>
+      {/* Totale fatturato ora visibile come KPI dedicato sopra (linea acconto/scadute/criticità rimossa per evitare duplicazione) */}
 
       {/* TENDINA AVANZAMENTO – timeline SAL mensili */}
       {expanded==='sal' && (
