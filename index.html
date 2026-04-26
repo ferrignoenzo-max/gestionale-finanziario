@@ -7499,10 +7499,39 @@ const PageImporta = ({bumpData})=>{
 
   const toISO=(d)=>{
     if(!d) return null;
-    if(String(d).includes('-')) return String(d);
-    const parts=String(d).split('/');
-    if(parts.length===3) return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-    return String(d);
+    const s=String(d).trim();
+    if(!s) return null;
+    // ISO already
+    if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+    // M/D/YYYY or D/M/YYYY (FIC US-style export uses M/D/YYYY)
+    if(s.includes('/')){
+      const p=s.split(/[\/\s:]/).filter(Boolean);
+      if(p.length>=3){
+        let a=parseInt(p[0],10), b=parseInt(p[1],10), y=parseInt(p[2],10);
+        if(y<100) y+=2000;
+        // Decide order: if first part > 12 it's DD/MM, if second > 12 it's MM/DD; default MM/DD (FIC)
+        let mm,dd;
+        if(a>12 && b<=12){ dd=a; mm=b; }
+        else if(b>12 && a<=12){ mm=a; dd=b; }
+        else { mm=a; dd=b; } // FIC default MM/DD
+        return `${y}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+      }
+    }
+    if(s.includes('-')){
+      const p=s.split('-');
+      if(p.length===3 && p[0].length<=2) return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;
+    }
+    return s;
+  };
+  const num=(v)=>{
+    if(v===null||v===undefined||v==='') return 0;
+    if(typeof v==='number') return v;
+    let s=String(v).trim().replace(/[€$\s]/g,'');
+    // Italian-style "1.234,56" -> "1234.56"
+    if(/,\d{1,2}$/.test(s)) s=s.replace(/\./g,'').replace(',','.');
+    else s=s.replace(/,/g,'');
+    const n=parseFloat(s);
+    return isNaN(n)?0:n;
   };
 
   const parseFile=(f)=>{
@@ -7513,24 +7542,131 @@ const PageImporta = ({bumpData})=>{
         const wb=XLSX.read(e.target.result,{type:'binary'});
         const sheets=wb.SheetNames;
         let parsedAttive=[], parsedPassive=[];
+
+        // Helper: parse a sheet that has a clean header row at headerIdx (0-based)
+        const parseFICSheet=(rows, headerIdx, isAttive)=>{
+          const headers=rows[headerIdx].map(h=>String(h||'').trim());
+          const idx={};
+          headers.forEach((h,i)=>{
+            const k=h.toLowerCase();
+            if(k==='data'&&idx.data===undefined) idx.data=i;
+            else if(k.includes('prox scadenza')||k==='scadenza') idx.scadenza=i;
+            else if(k==='documento') idx.documento=i;
+            else if(k==='numero') idx.numero=i;
+            else if(k==='serie') idx.serie=i;
+            else if(k==='saldato') idx.saldato=i;
+            else if(k==='cliente'&&isAttive) idx.controparte=i;
+            else if(k==='fornitore'&&!isAttive) idx.controparte=i;
+            else if(k.startsWith('oggetto (visibile)')) idx.oggetto=i;
+            else if(k.startsWith('oggetto (interno)')&&idx.oggetto===undefined) idx.oggetto=i;
+            else if(k==='imponibile') idx.imponibile=i;
+            else if(k==='iva') idx.iva=i;
+            else if(k==='lordo'||k==='totale documento'||k==='totale') idx.lordo=i;
+          });
+          if(idx.numero===undefined||idx.data===undefined) return [];
+          const out=[];
+          for(let i=headerIdx+1;i<rows.length;i++){
+            const r=rows[i]; if(!r||r.every(c=>c===''||c===null||c===undefined)) continue;
+            const tipoDoc=String(r[idx.documento]||'').trim().toLowerCase();
+            // Skip ddt, preventivi, ordini, proforma — keep only fatture and note di credito
+            if(tipoDoc&&!/fattura|nota.*credito|nota credito/i.test(tipoDoc)) continue;
+            const numero=String(r[idx.numero]||'').trim();
+            if(!numero||numero.toLowerCase()==='numero') continue;
+            const dt=r[idx.data];
+            // Excel date may be a number; convert via XLSX
+            let dataStr;
+            if(typeof dt==='number'){
+              const d=XLSX.SSF.parse_date_code(dt);
+              if(d) dataStr=`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+              else dataStr=String(dt);
+            } else dataStr=toISO(dt);
+            let scad=null;
+            if(idx.scadenza!==undefined){
+              const sc=r[idx.scadenza];
+              if(typeof sc==='number'){
+                const d=XLSX.SSF.parse_date_code(sc);
+                if(d) scad=`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+              } else scad=toISO(sc);
+            }
+            const controparte=idx.controparte!==undefined?String(r[idx.controparte]||'').trim():'';
+            const oggetto=idx.oggetto!==undefined?String(r[idx.oggetto]||'').trim():'';
+            const imponibile=idx.imponibile!==undefined?num(r[idx.imponibile]):0;
+            const iva=idx.iva!==undefined?num(r[idx.iva]):0;
+            const lordo=idx.lordo!==undefined?num(r[idx.lordo]):(imponibile+iva);
+            const saldato=idx.saldato!==undefined?String(r[idx.saldato]||'').trim().toUpperCase():'';
+            const stato=saldato==='SI'||saldato==='SÌ'||saldato==='YES'?'Pagata':'Aperta';
+            // Note di credito: importi negativi
+            const isNC=/nota.*credito/i.test(tipoDoc);
+            const sign=isNC?-1:1;
+            const rec={
+              num: numero,
+              data: dataStr,
+              scadenza: scad,
+              oggetto,
+              imponibile: imponibile*sign,
+              iva: iva*sign,
+              lordo: lordo*sign,
+              netto: lordo*sign,
+              stato,
+              tipo: isNC?'Nota di credito':'Fattura'
+            };
+            if(isAttive) rec.cliente=controparte; else rec.fornitore=controparte;
+            out.push(rec);
+          }
+          return out;
+        };
+
+        // Detect FattureInCloud format on each sheet
         sheets.forEach(sname=>{
           const ws=wb.Sheets[sname];
-          const data=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+          const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true});
+          if(!rows.length) return;
+          // Look for FIC signature in first 6 rows
+          let isFIC=false, isAttive=null, headerIdx=-1;
+          for(let i=0;i<Math.min(6,rows.length);i++){
+            const txt=rows[i].map(c=>String(c||'')).join(' ').toLowerCase();
+            if(txt.includes('fatturaincloud')||txt.includes('fattureincloud')){
+              isFIC=true;
+              if(txt.includes('emess')) isAttive=true;
+              else if(txt.includes('ricev')) isAttive=false;
+            }
+          }
+          if(isFIC){
+            // Find header row (contains "numero" and "data")
+            for(let i=0;i<Math.min(15,rows.length);i++){
+              const lower=rows[i].map(c=>String(c||'').toLowerCase().trim());
+              if(lower.includes('numero')&&lower.includes('data')){ headerIdx=i; break; }
+            }
+            if(headerIdx<0) return;
+            // If we couldn't detect attive/passive from signature, infer from header
+            if(isAttive===null){
+              const lower=rows[headerIdx].map(c=>String(c||'').toLowerCase().trim());
+              isAttive=lower.includes('cliente');
+            }
+            const parsed=parseFICSheet(rows, headerIdx, !!isAttive);
+            if(isAttive) parsedAttive=parsedAttive.concat(parsed);
+            else parsedPassive=parsedPassive.concat(parsed);
+            return;
+          }
+
+          // Fallback: previous block-based parser (Riepilogo style)
           let modeAttive=false, modePassive=false;
-          data.forEach((row)=>{
-            const rowStr=row.join(' ').toLowerCase();
+          rows.forEach((row)=>{
+            const rowStr=row.map(c=>String(c||'')).join(' ').toLowerCase();
             if(rowStr.includes('fatture emesse')||rowStr.includes('fattura emessa')){modeAttive=true;modePassive=false;return;}
             if(rowStr.includes('fatture ricevute')||rowStr.includes('fattura ricevuta')){modePassive=true;modeAttive=false;return;}
-            if(row.every(c=>!c)) {modeAttive=false;modePassive=false;return;}
-            const num=String(row[0]||'').trim();
-            if(!num||num.toLowerCase()==='numero'||num.toLowerCase()==='num') return;
+            if(row.every(c=>c===''||c===null||c===undefined)) {modeAttive=false;modePassive=false;return;}
+            const numero=String(row[0]||'').trim();
+            if(!numero||numero.toLowerCase()==='numero'||numero.toLowerCase()==='num') return;
             const dt=String(row[1]||'').trim();
-            const lordo=parseFloat(String(row[row.length-3]||0).replace(',','.').replace(/[^\d.-]/g,''))||0;
-            const netto=parseFloat(String(row[row.length-2]||0).replace(',','.').replace(/[^\d.-]/g,''))||0;
-            if(modeAttive){const cliente=String(row[2]||row[3]||'').trim();if(num) parsedAttive.push({num,data:dt,cliente,lordo,netto,stato:'Aperta',garanzia:0});}
-            else if(modePassive){const fornitore=String(row[2]||row[3]||'').trim();if(num) parsedPassive.push({num,data:dt,fornitore,lordo,netto,stato:'Aperta',garanzia:0});}
+            const lordo=num(row[row.length-3]);
+            const netto=num(row[row.length-2])||lordo;
+            if(modeAttive){const cliente=String(row[2]||row[3]||'').trim();if(numero) parsedAttive.push({num:numero,data:dt,cliente,oggetto:'',lordo,netto,stato:'Aperta',tipo:'Fattura'});}
+            else if(modePassive){const fornitore=String(row[2]||row[3]||'').trim();if(numero) parsedPassive.push({num:numero,data:dt,fornitore,oggetto:'',lordo,netto,stato:'Aperta',tipo:'Fattura'});}
           });
         });
+
+        // Final fallback: row-of-objects with named columns
         if(!parsedAttive.length&&!parsedPassive.length){
           const ws=wb.Sheets[sheets[0]];
           const data=XLSX.utils.sheet_to_json(ws,{defval:''});
@@ -7539,21 +7675,25 @@ const PageImporta = ({bumpData})=>{
             const hasCliente=keys.some(k=>k.toLowerCase().includes('cliente'));
             const hasFornitore=keys.some(k=>k.toLowerCase().includes('fornitore'));
             data.forEach(row=>{
-              const num=String(row['Numero']||row['Num']||row['num']||'').trim();
+              const numero=String(row['Numero']||row['Num']||row['num']||'').trim();
               const dt=String(row['Data']||row['data']||'').trim();
-              const lordo=parseFloat(String(row['Lordo']||row['lordo']||row['Totale']||0).replace(',','.').replace(/[^\d.-]/g,''))||0;
-              const netto=parseFloat(String(row['Netto']||row['netto']||lordo).replace(',','.').replace(/[^\d.-]/g,''))||0;
-              if(hasCliente&&!hasFornitore){const cliente=String(row['Cliente']||row['cliente']||'').trim();if(num) parsedAttive.push({num,data:dt,cliente,lordo,netto,stato:'Aperta',garanzia:0});}
-              else if(hasFornitore){const fornitore=String(row['Fornitore']||row['fornitore']||'').trim();if(num) parsedPassive.push({num,data:dt,fornitore,lordo,netto,stato:'Aperta',garanzia:0});}
+              const lordo=num(row['Lordo']||row['lordo']||row['Totale']||row['Totale documento']);
+              const imp=num(row['Imponibile']||row['imponibile']);
+              const iva=num(row['IVA']||row['iva']);
+              const ogg=String(row['Oggetto (visibile)']||row['Oggetto']||row['oggetto']||'').trim();
+              if(hasCliente&&!hasFornitore){const cliente=String(row['Cliente']||row['cliente']||'').trim();if(numero) parsedAttive.push({num:numero,data:dt,cliente,oggetto:ogg,imponibile:imp,iva,lordo,netto:lordo,stato:'Aperta',tipo:'Fattura'});}
+              else if(hasFornitore){const fornitore=String(row['Fornitore']||row['fornitore']||'').trim();if(numero) parsedPassive.push({num:numero,data:dt,fornitore,oggetto:ogg,imponibile:imp,iva,lordo,netto:lordo,stato:'Aperta',tipo:'Fattura'});}
             });
           }
         }
+
         if(parsedAttive.length||parsedPassive.length){
           const result=[];
           if(parsedAttive.length) result.push({tipo:'fattureAttive',rows:parsedAttive});
           if(parsedPassive.length) result.push({tipo:'fatturePassive',rows:parsedPassive});
           setPreview(result);
-          setMsg('✅ Trovate '+(parsedAttive.length?parsedAttive.length+' fatture attive':'')+(parsedAttive.length&&parsedPassive.length?' e ':'' )+(parsedPassive.length?parsedPassive.length+' fatture passive':'')+'.');
+          const a=parsedAttive.length, p=parsedPassive.length;
+          setMsg('✅ Trovate '+(a?a+' fatture attive':'')+(a&&p?' e ':'')+(p?p+' fatture passive':'')+'.');
         } else {
           setPreview(null);
           setMsg('⚠️ Nessuna fattura riconosciuta. Verifica il formato del file.');
@@ -7568,8 +7708,8 @@ const PageImporta = ({bumpData})=>{
   const caricaLocale=()=>{
     if(!preview) return;
     preview.forEach(({tipo,rows})=>{
-      if(tipo==='fattureAttive'){rows.forEach(r=>{if(!D.fattureAttive.find(f=>f.num===r.num)) D.fattureAttive.push({id:'FA-'+r.num,fic_id:null,num:r.num,data:toISO(r.data),scadenza:r.scadenza||null,commessa:null,commessaCodice:null,cliente:r.cliente,tipo:'Fattura',oggetto:r.oggetto||'',imponibile:0,iva:0,sal:null,lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:'',tipoRif:null,salNum:null,extraId:null,statoLink:'NonAssegnata'}); });}
-      else{rows.forEach(r=>{if(!D.fatturePassive.find(f=>f.num===r.num)) D.fatturePassive.push({id:'FP-'+r.num,fic_id:null,num:r.num,data:toISO(r.data),scadenza:r.scadenza||null,commessa:null,commessaCodice:null,fornitore:r.fornitore,tipo:'Fattura',oggetto:r.oggetto||'',imponibile:0,iva:0,lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:'',tipoRif:null,salNum:null,extraId:null,statoLink:'NonAssegnata'}); });}
+      if(tipo==='fattureAttive'){rows.forEach(r=>{const k=r.num+'|'+toISO(r.data);if(!D.fattureAttive.find(f=>(f.num+'|'+f.data)===k)) D.fattureAttive.push({id:'FA-'+r.num+'-'+(toISO(r.data)||'').slice(0,4),fic_id:null,num:r.num,data:toISO(r.data),scadenza:r.scadenza||null,commessa:null,commessaCodice:null,cliente:r.cliente,tipo:r.tipo||'Fattura',oggetto:r.oggetto||'',imponibile:r.imponibile||0,iva:r.iva||0,sal:null,lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:'',tipoRif:null,salNum:null,extraId:null,statoLink:'NonAssegnata'}); });}
+      else{rows.forEach(r=>{const k=r.num+'|'+toISO(r.data);if(!D.fatturePassive.find(f=>(f.num+'|'+f.data)===k)) D.fatturePassive.push({id:'FP-'+r.num+'-'+(toISO(r.data)||'').slice(0,4),fic_id:null,num:r.num,data:toISO(r.data),scadenza:r.scadenza||null,commessa:null,commessaCodice:null,fornitore:r.fornitore,tipo:r.tipo||'Fattura',oggetto:r.oggetto||'',imponibile:r.imponibile||0,iva:r.iva||0,lordo:r.lordo,garanzia:0,compGen:0,compSub:0,netto:r.netto,stato:r.stato,note:'',tipoRif:null,salNum:null,extraId:null,statoLink:'NonAssegnata'}); });}
     });
     linkFatture();
     ricalcolaKPI();
@@ -7583,22 +7723,39 @@ const PageImporta = ({bumpData})=>{
     try {
       for(const {tipo,rows} of preview){
         const table=tipo==='fattureAttive'?'fatture_attive':'fatture_passive';
-        const payload=rows.map(r=>({
-          num:r.num, data:toISO(r.data),
-          [tipo==='fattureAttive'?'cliente':'fornitore']:tipo==='fattureAttive'?r.cliente:r.fornitore,
-          lordo:r.lordo, garanzia:0, netto:r.netto, stato:r.stato||'Aperta',
-        }));
-        const res=await fetch(SB_URL2+'/rest/v1/'+table,{method:'POST',headers:SB_H2,body:JSON.stringify(payload)});
-        if(!res.ok){const txt=await res.text();throw new Error(table+': '+txt);}
+        // Carico esistenti (num, data) per dedup
+        const existRes=await fetch(SB_URL2+'/rest/v1/'+table+'?select=num,data',{headers:{apikey:SB_KEY2,'Authorization':`Bearer ${SB_KEY2}`}});
+        const existing=existRes.ok?await existRes.json():[];
+        const existSet=new Set(existing.map(e=>e.num+'|'+(e.data||'').slice(0,10)));
+        const payload=rows
+          .map(r=>{
+            const dt=toISO(r.data);
+            return {
+              num:r.num, data:dt, scadenza:r.scadenza||null,
+              [tipo==='fattureAttive'?'cliente':'fornitore']:tipo==='fattureAttive'?r.cliente:r.fornitore,
+              tipo: r.tipo||'Fattura',
+              oggetto: r.oggetto||'',
+              imponibile: r.imponibile||0, iva: r.iva||0,
+              lordo:r.lordo, garanzia:0, netto:r.netto, stato:r.stato||'Aperta',
+            };
+          })
+          .filter(p=>p.num && p.data && !existSet.has(p.num+'|'+p.data));
+        if(!payload.length) continue;
+        // Insert in batch di 100
+        for(let i=0;i<payload.length;i+=100){
+          const chunk=payload.slice(i,i+100);
+          const res=await fetch(SB_URL2+'/rest/v1/'+table,{method:'POST',headers:SB_H2,body:JSON.stringify(chunk)});
+          if(!res.ok){const txt=await res.text();throw new Error(table+': '+txt);}
+        }
       }
-      setMsg('✅ Dati salvati su Supabase! Ricarica la pagina per aggiornare.');
+      setMsg('✅ Dati salvati su Supabase! Ricarica la pagina per vederli.');
     } catch(err){setMsg('❌ Errore Supabase: '+err.message);}
     setSaving(false);
   };
 
   const tipoLabel={fattureAttive:'Fatture Attive',fatturePassive:'Fatture Passive'};
-  const colLabel={fattureAttive:['Numero','Data','Cliente','Lordo €','Netto €','Stato'],fatturePassive:['Numero','Data','Fornitore','Lordo €','Netto €','Stato']};
-  const colKey={fattureAttive:['num','data','cliente','lordo','netto','stato'],fatturePassive:['num','data','fornitore','lordo','netto','stato']};
+  const colLabel={fattureAttive:['Numero','Data','Scad.','Cliente','Oggetto','Imponibile','IVA','Lordo','Stato'],fatturePassive:['Numero','Data','Scad.','Fornitore','Oggetto','Imponibile','IVA','Lordo','Stato']};
+  const colKey={fattureAttive:['num','data','scadenza','cliente','oggetto','imponibile','iva','lordo','stato'],fatturePassive:['num','data','scadenza','fornitore','oggetto','imponibile','iva','lordo','stato']};
 
   return (
     <div style={{padding:24,maxWidth:1100}}>
@@ -7628,10 +7785,10 @@ const PageImporta = ({bumpData})=>{
               <thead><tr style={{background:T.bg}}>{colLabel[tipo].map(h=><th key={h} style={{padding:'7px 10px',textAlign:'left',fontWeight:600,color:T.textL,borderBottom:`1px solid ${T.border}`,whiteSpace:'nowrap'}}>{h}</th>)}</tr></thead>
               <tbody>{rows.slice(0,50).map((r,i)=>(
                 <tr key={i} style={{borderBottom:`1px solid ${T.border}`,background:i%2?T.bg:'#fff'}}>
-                  {colKey[tipo].map(k=><td key={k} style={{padding:'6px 10px',color:T.text}}>{(k==='lordo'||k==='netto')?fmt(r[k]):r[k]}</td>)}
+                  {colKey[tipo].map(k=><td key={k} style={{padding:'6px 10px',color:T.text,maxWidth:k==='oggetto'?180:'none',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:k==='oggetto'?'nowrap':'normal'}}>{(k==='lordo'||k==='netto'||k==='imponibile'||k==='iva')?fmt(r[k]||0):(r[k]||'')}</td>)}
                 </tr>
               ))}
-              {rows.length>50&&<tr><td colSpan={6} style={{padding:'8px 10px',color:T.textL,fontSize:11,fontStyle:'italic'}}>... e altre {rows.length-50} righe</td></tr>}
+              {rows.length>50&&<tr><td colSpan={colKey[tipo].length} style={{padding:'8px 10px',color:T.textL,fontSize:11,fontStyle:'italic'}}>... e altre {rows.length-50} righe</td></tr>}
               </tbody>
             </table>
           </div>
