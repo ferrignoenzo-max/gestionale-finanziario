@@ -1764,7 +1764,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
 };
 
 const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
-  const [tab,setTab]=useState('sal');
+  const [tab,setTab]=useState('pagamenti');
   const [editOpen,setEditOpen]=useState(false);
   if(!commessa) return <div style={{padding:24}}><Card><div style={{color:T.textL,textAlign:'center',padding:40}}>Nessuna commessa selezionata. <span style={{color:T.blue,cursor:'pointer'}} onClick={()=>onNav('watchlist')}>Vai alla watchlist →</span></div></Card></div>;
   const c=commessa;
@@ -1775,7 +1775,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
   const extraC=D.extra.filter(e=>e.commessa===c.id);
   const salC=D.sal.filter(s=>s.commessa===c.id);
   const salProdPct=c.importoContrattuale>0?Math.round((c.salProdAttivoTot/c.importoContrattuale)*100):0;
-  const tabs=['sal','fatture','extra','compensazioni','regole'];
+  const tabs=['pagamenti','sal','fatture','extra','compensazioni','regole'];
 
   return (
     <div style={{padding:24}}>
@@ -1875,13 +1875,162 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
 
       {/* Tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${T.border}`,marginBottom:18}}>
-        {[{id:'sal',label:'SAL'},{id:'fatture',label:'Fatture'},{id:'extra',label:'Extra'},{id:'compensazioni',label:'Compensazioni'},{id:'regole',label:'Regole Economiche'}].map(t=>(
+        {[{id:'pagamenti',label:'📋 Pagamenti'},{id:'sal',label:'SAL'},{id:'fatture',label:'Fatture'},{id:'extra',label:'Extra'},{id:'compensazioni',label:'Compensazioni'},{id:'regole',label:'Regole Economiche'}].map(t=>(
           <div key={t.id} onClick={()=>setTab(t.id)}
             style={{padding:'8px 16px',cursor:'pointer',borderBottom:tab===t.id?`2px solid ${T.blue}`:'2px solid transparent',color:tab===t.id?T.blue:T.textL,fontWeight:tab===t.id?600:400,fontSize:13,marginBottom:-1}}>
             {t.label}
           </div>
         ))}
       </div>
+
+      {/* Tab: Pagamenti / Milestone */}
+      {tab==='pagamenti'&&(()=>{
+        const ms = c.regolePagamento?.milestone || [];
+        const fattAttive = D.fattureAttive.filter(f=>f.commessa===c.id);
+        const totFatt = fattAttive.reduce((a,f)=>a+(f.lordo||0),0);
+        const totIncassato = fattAttive.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+(f.lordo||0),0);
+        const importoCommessa = c.importoContrattuale||0;
+
+        // Match euristico: associa fatture a milestone in base al tipoRif/oggetto
+        const fattureMS = (m) => {
+          if(m.tipo==='acconto')  return fattAttive.filter(f=>f.tipoRif==='Acconto'||/acconto|acc[\b\.]/i.test(f.oggetto||''));
+          if(m.tipo==='sal')      return fattAttive.filter(f=>f.tipoRif==='SAL'||(f.tipoRif!=='Acconto'&&!/saldo|garanzia|extra/i.test(f.oggetto||'')));
+          if(m.tipo==='saldo')    return fattAttive.filter(f=>/saldo|fine\s*lavori/i.test(f.oggetto||''));
+          if(m.tipo==='garanzia') return fattAttive.filter(f=>/garanzia|svincolo/i.test(f.oggetto||''));
+          return [];
+        };
+        const lookupMP = (id) => (D.modalitaPagamento||[]).find(mp=>mp.id===id);
+        const tipoIcon = {acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
+        const tipoColor = {acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL};
+
+        return (
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            {/* KPI riepilogo */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
+                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Importo commessa</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.text}}>{fmt(importoCommessa)}</div>
+              </div>
+              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
+                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(totFatt)}</div>
+                <div style={{fontSize:10,color:T.textL}}>{importoCommessa>0?Math.round(totFatt/importoCommessa*100):0}% del contratto</div>
+              </div>
+              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.amber}`}}>
+                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Incassato</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.amber}}>{fmt(totIncassato)}</div>
+              </div>
+              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
+                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(Math.max(0,importoCommessa-totFatt))}</div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <Card>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+                <span style={{fontWeight:700,fontSize:13}}>Avanzamento fatturazione</span>
+                <span style={{fontSize:12,color:T.textL}}>{fmt(totFatt)} / {fmt(importoCommessa)}</span>
+              </div>
+              <div style={{height:14,background:'#e2e8f0',borderRadius:7,overflow:'hidden',position:'relative'}}>
+                <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${importoCommessa>0?Math.min(100,totFatt/importoCommessa*100):0}%`,background:T.green,transition:'width .4s'}}/>
+                <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${importoCommessa>0?Math.min(100,totIncassato/importoCommessa*100):0}%`,background:T.amber,opacity:.7}}/>
+              </div>
+              <div style={{display:'flex',gap:14,fontSize:11,marginTop:6}}>
+                <span><span style={{display:'inline-block',width:10,height:10,background:T.green,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Fatturato</span>
+                <span><span style={{display:'inline-block',width:10,height:10,background:T.amber,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Incassato</span>
+                <span><span style={{display:'inline-block',width:10,height:10,background:'#e2e8f0',borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Residuo</span>
+              </div>
+            </Card>
+
+            {/* Milestone list */}
+            {ms.length===0 ? (
+              <Card>
+                <div style={{padding:24,textAlign:'center',color:T.textL}}>
+                  Nessuna milestone configurata. Vai su <b>✏️ Modifica</b> → "📋 Regole di pagamento" per aggiungere le rate (es. 10/84/3/3 stile Benetti).
+                </div>
+              </Card>
+            ) : ms.map((m,i)=>{
+              const importoMs = (importoCommessa * (parseFloat(m.perc)||0)) / 100;
+              const fatts = fattureMS(m);
+              const fattLordo = fatts.reduce((a,f)=>a+(f.lordo||0),0);
+              const fattIncas = fatts.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+(f.lordo||0),0);
+              const pctCop = importoMs>0?Math.round(fattLordo/importoMs*100):0;
+              const stato = pctCop===0 ? 'Da fatturare' : pctCop>=99 ? (fattIncas>=fattLordo ? 'Pagata' : 'Fatturata') : 'In corso';
+              const statoColor = stato==='Pagata' ? T.green : stato==='Fatturata' ? T.blue : stato==='In corso' ? T.amber : T.textL;
+              const mp = lookupMP(m.modalitaPagamentoId);
+              return (
+                <Card key={m.id} style={{padding:0,borderLeft:`4px solid ${tipoColor[m.tipo]||T.textL}`}}>
+                  <div style={{padding:'14px 16px',borderBottom:`1px solid ${T.border}`,background:'#fafbfc',borderRadius:'8px 8px 0 0'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:10}}>
+                        <span style={{background:'#fff',width:28,height:28,borderRadius:14,display:'inline-flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:12,border:`1px solid ${T.border}`}}>{i+1}</span>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:14}}>{tipoIcon[m.tipo]||'•'} {m.titolo||'(senza titolo)'}</div>
+                          <div style={{fontSize:11,color:T.textL,marginTop:2}}>
+                            {mp?`${mp.nome} (${mp.strumento})`:'Modalità non specificata'}
+                            {m.condizioni?` · ${m.condizioni.slice(0,80)}${m.condizioni.length>80?'…':''}`:''}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:14,alignItems:'center'}}>
+                        <div style={{textAlign:'right'}}>
+                          <div style={{fontWeight:800,fontSize:18,color:tipoColor[m.tipo]||T.text}}>{fmt(importoMs)}</div>
+                          <div style={{fontSize:10,color:T.textL}}>{m.perc}% del contratto</div>
+                        </div>
+                        <span style={{background:statoColor,color:'#fff',padding:'4px 10px',borderRadius:12,fontSize:11,fontWeight:700,minWidth:90,textAlign:'center'}}>{stato}</span>
+                      </div>
+                    </div>
+                    {/* Mini progress */}
+                    <div style={{marginTop:10}}>
+                      <div style={{height:6,background:'#e2e8f0',borderRadius:3,overflow:'hidden'}}>
+                        <div style={{height:'100%',width:`${Math.min(100,pctCop)}%`,background:statoColor,transition:'width .3s'}}/>
+                      </div>
+                      <div style={{fontSize:10,color:T.textL,marginTop:3,display:'flex',justifyContent:'space-between'}}>
+                        <span>Fatturato: <b>{fmt(fattLordo)}</b> · Incassato: <b style={{color:T.amber}}>{fmt(fattIncas)}</b></span>
+                        <span>{pctCop}% coperto</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Fatture collegate */}
+                  {fatts.length>0 ? (
+                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                      <thead>
+                        <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                          <th style={{padding:'6px 12px',textAlign:'left'}}>Num</th>
+                          <th style={{padding:'6px 12px',textAlign:'left'}}>Data</th>
+                          <th style={{padding:'6px 12px',textAlign:'left'}}>Scadenza</th>
+                          <th style={{padding:'6px 12px',textAlign:'right'}}>Lordo</th>
+                          <th style={{padding:'6px 12px',textAlign:'right'}}>Netto</th>
+                          <th style={{padding:'6px 12px',textAlign:'left'}}>Stato</th>
+                          <th style={{padding:'6px 12px',textAlign:'left'}}>Oggetto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {fatts.sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(f=>(
+                          <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                            <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                            <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
+                            <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
+                            <td style={{padding:'6px 12px',textAlign:'right',fontWeight:600}}>{fmt(f.lordo)}</td>
+                            <td style={{padding:'6px 12px',textAlign:'right',color:T.green}}>{fmt(f.netto||f.lordo)}</td>
+                            <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
+                            <td style={{padding:'6px 12px',color:T.textL,fontSize:11,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.oggetto}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div style={{padding:'14px 16px',color:T.textL,fontSize:12,textAlign:'center',fontStyle:'italic'}}>
+                      Nessuna fattura associata a questa milestone (auto-detect su tipo/oggetto). Quando emetti una fattura il match avviene automaticamente.
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Tab: SAL */}
       {tab==='sal'&&<Card style={{padding:0}}>
