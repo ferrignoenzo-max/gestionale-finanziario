@@ -69,6 +69,7 @@ scadenziario:[],
 anagrafica:[],
 noteCredito:[],
 movimentiBancari:[],
+modalitaPagamento:[],
 };
 
 /* ─── COMPUTED KPIs ──────────────────────────────────────── */
@@ -394,12 +395,19 @@ const ricalcolaKPI = ()=>{
 async function loadFromSupabase() {
   // Fetch con tolleranza 404 (tabella commesse potrebbe non esistere ancora)
   const safeFetch = async (url)=>{ try { const r = await fetch(url,{headers:SB_H}); return r.ok?await r.json():[]; } catch { return []; } };
-  const [attive, passive, ana, commesse] = await Promise.all([
+  const [attive, passive, ana, commesse, modPag] = await Promise.all([
     safeFetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=data.desc`),
     safeFetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=data.desc`),
     safeFetch(`${SB_URL}/rest/v1/anagrafica?select=*&order=nome.asc`),
     safeFetch(`${SB_URL}/rest/v1/commesse?select=*&order=codice.asc`),
+    safeFetch(`${SB_URL}/rest/v1/modalita_pagamento?select=*&order=nome.asc`),
   ]);
+  if(!D.modalitaPagamento) D.modalitaPagamento = [];
+  D.modalitaPagamento.splice(0);
+  modPag.forEach(m=>D.modalitaPagamento.push({
+    id:m.id, nome:m.nome, strumento:m.strumento, giorni:m.giorni,
+    riferimento:m.riferimento, giorniExtra:m.giorni_extra, note:m.note||'',
+  }));
   D.fattureAttive.splice(0);
   attive.forEach(f => D.fattureAttive.push({
     id: f.id, fic_id: f.fic_id||null, num: f.num, data: f.data,
@@ -453,6 +461,7 @@ async function loadFromSupabase() {
     madreId: c.madre_id||null, autonomo: c.autonomo||null,
     acconto: c.acconto||null, garanzia: c.garanzia||null,
     compEnabled: c.comp_enabled||false,
+    regolePagamento: c.regole_pagamento||null,
     contratto: null, criticita: c.criticita||[],
   }));
   // LINK DINAMICO: collega ogni fattura alla commessa giusta via oggetto
@@ -720,6 +729,7 @@ const NAV=[
   {section:'COMMESSE & CONTRATTI'},
   {id:'nuovaCommessa',label:'➕ Nuova Commessa',icon:'＋'},
   {id:'watchlist',label:'Watchlist Commesse',icon:'⊞'},
+  {id:'modalitaPagamento',label:'💳 Modalità Pagamento',icon:'💳'},
   {id:'garanzieAcc',label:'Garanzie & Acconti',icon:'🔒'},
   {id:'storicoComp',label:'Compensazioni',icon:'⇌'},
   {section:'AVANZATO'},
@@ -732,7 +742,7 @@ const NAV=[
 ];
 
 const Sidebar = ({page,onNav,onSearch})=>{
-  const mainPages=['dashboard','anagrafica','scadenziario','fattureAttive','fatturePassive','noteCredito','utenze','fornitori','subappaltatori','nuovaCommessa','watchlist','garanzieAcc','storicoComp','primaNota','banca','report','auditLog','importa'];
+  const mainPages=['dashboard','anagrafica','scadenziario','fattureAttive','fatturePassive','noteCredito','utenze','fornitori','subappaltatori','nuovaCommessa','watchlist','modalitaPagamento','garanzieAcc','storicoComp','primaNota','banca','report','auditLog','importa'];
   return (
     <div style={{width:220,background:T.sidebar,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
       <div style={{padding:'16px 16px 10px'}}>
@@ -780,7 +790,7 @@ const Sidebar = ({page,onNav,onSearch})=>{
 };
 
 /* ─── HEADER ──────────────────────────────────────────────── */
-const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
+const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
 const Header = ({page,onAI,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
@@ -1452,6 +1462,14 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
   const [garScadContrattuale,setGarScadContrattuale]=useState(c.garanzia?.scadenzaContrattuale||'');
   const [compEnabled,setCompEnabled]=useState(!!c.compEnabled);
   const [autonomo,setAutonomo]=useState(!!c.autonomo);
+  // Regole pagamento (milestone variabili)
+  const [milestone,setMilestone]=useState(c.regolePagamento?.milestone||[]);
+  const addMilestone = ()=> setMilestone([...milestone, {id:`ms-${Date.now()}`, titolo:'', tipo:'sal', perc:'', trigger:'sal_mensile', triggerExtra:'', modalitaPagamentoId:'', condizioni:'', fideiussioneAlt:{attiva:false, perc:5, mesi:12}}]);
+  const removeMilestone = (id)=> setMilestone(milestone.filter(m=>m.id!==id));
+  const updateMilestone = (id, patch)=> setMilestone(milestone.map(m=>m.id===id?{...m,...patch}:m));
+  const totPerc = milestone.reduce((a,m)=>a+(parseFloat(m.perc)||0),0);
+  const TIPI_MS = [{v:'acconto',l:'💰 Acconto'},{v:'sal',l:'📊 SAL'},{v:'saldo',l:'✅ Saldo'},{v:'garanzia',l:'🔐 Garanzia/Ritenuta'},{v:'fideiussione',l:'📜 Fideiussione'},{v:'altro',l:'• Altro'}];
+  const TRIGGER = [{v:'inizio_lavori',l:'Inizio lavori'},{v:'sal_mensile',l:'SAL mensile (ricorrente)'},{v:'fine_lavori',l:'Fine lavori'},{v:'x_mesi_dopo_fine',l:'X mesi dopo fine'},{v:'avanzamento_perc',l:'Al raggiungimento %'},{v:'altro',l:'Altro (vedi note)'}];
 
   const clientiOpt = [...new Set([...(D.anagrafica||[]).map(a=>a.nome), ...(D.commesse||[]).map(c=>c.cliente)])].filter(Boolean).sort();
 
@@ -1466,6 +1484,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
       dataFine: dataFine||null,
       pagMode, fattMode,
       autonomo, compEnabled,
+      regolePagamento: milestone.length>0 ? { milestone, totalePerc: totPerc } : null,
       acconto: accActive ? { tipo:accTipo, val:parseFloat(accVal)||0, regola:accRegola, residuo:c.acconto?.residuo||0, recuperato:c.acconto?.recuperato||0 } : null,
       garanzia: garActive ? {
         tipo:garTipo,
@@ -1485,7 +1504,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
   };
 
   return (
-    <Modal title={`Modifica commessa ${c.codice}`} onClose={onClose} width={760}>
+    <Modal title={`Modifica commessa ${c.codice}`} onClose={onClose} width={920}>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
         {/* COLONNA SX: dati base + economici */}
         <div>
@@ -1640,6 +1659,88 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
             </div>
           </div>}
         </div>
+      </div>
+
+      {/* ─── REGOLE DI PAGAMENTO (milestone) ─── */}
+      <div style={{marginTop:18,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:13,color:T.text}}>📋 Regole di pagamento ({milestone.length} milestone)</div>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <span style={{fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:12,background:totPerc===100?'#f0fdf4':totPerc>100?T.redL:'#fffbeb',color:totPerc===100?T.green:totPerc>100?T.red:'#92400e'}}>
+              Totale: {totPerc}% {totPerc===100?'✓':totPerc>100?'⚠ supera':'⚠ incompleto'}
+            </span>
+            <Btn onClick={addMilestone} variant='outline' size='sm'>➕ Aggiungi rata</Btn>
+          </div>
+        </div>
+        {milestone.length===0&&<div style={{padding:14,background:'#f8fafc',borderRadius:6,fontSize:12,color:T.textL,textAlign:'center'}}>
+          Nessuna milestone configurata. Click su "Aggiungi rata" per costruire le regole di pagamento (es. 10% acconto / 84% SAL / 3% saldo / 3% garanzia 12 mesi).
+        </div>}
+        {milestone.map((ms,idx)=>(
+          <div key={ms.id} style={{border:`1px solid ${T.border}`,borderRadius:8,padding:12,marginBottom:10,background:'#fafbfc'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <div style={{fontWeight:700,fontSize:12,color:T.blue}}>Rata #{idx+1}</div>
+              <button onClick={()=>removeMilestone(ms.id)} style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:13}} title="Rimuovi">🗑️ Rimuovi</button>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 80px',gap:8,marginBottom:8}}>
+              <div>
+                <label style={lab}>Titolo</label>
+                <input value={ms.titolo} onChange={e=>updateMilestone(ms.id,{titolo:e.target.value})} style={inp} placeholder='es. Acconto inizio lavori'/>
+              </div>
+              <div>
+                <label style={lab}>Tipo</label>
+                <select value={ms.tipo} onChange={e=>updateMilestone(ms.id,{tipo:e.target.value})} style={inp}>
+                  {TIPI_MS.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lab}>%</label>
+                <input type="number" step="0.1" value={ms.perc} onChange={e=>updateMilestone(ms.id,{perc:e.target.value})} style={inp} placeholder='10'/>
+              </div>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+              <div>
+                <label style={lab}>Trigger / Quando scatta</label>
+                <select value={ms.trigger} onChange={e=>updateMilestone(ms.id,{trigger:e.target.value})} style={inp}>
+                  {TRIGGER.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lab}>Modalità pagamento</label>
+                <select value={ms.modalitaPagamentoId} onChange={e=>updateMilestone(ms.id,{modalitaPagamentoId:e.target.value})} style={inp}>
+                  <option value="">— scegli dalla libreria —</option>
+                  {(D.modalitaPagamento||[]).map(mp=><option key={mp.id} value={mp.id}>{mp.nome}</option>)}
+                </select>
+              </div>
+            </div>
+            {(ms.trigger==='x_mesi_dopo_fine'||ms.trigger==='avanzamento_perc')&&
+              <div style={{marginBottom:8}}>
+                <label style={lab}>{ms.trigger==='x_mesi_dopo_fine'?'Mesi dopo fine':'% avanzamento'}</label>
+                <input type="number" value={ms.triggerExtra} onChange={e=>updateMilestone(ms.id,{triggerExtra:e.target.value})} style={inp} placeholder={ms.trigger==='x_mesi_dopo_fine'?'12':'50'}/>
+              </div>
+            }
+            <div style={{marginBottom:8}}>
+              <label style={lab}>Condizioni / Note libere</label>
+              <input value={ms.condizioni} onChange={e=>updateMilestone(ms.id,{condizioni:e.target.value})} style={inp} placeholder='es. con docs tecnici firmati, previa accettazione, senza remarks ODP...'/>
+            </div>
+            {/* Fideiussione alternativa */}
+            <div style={{padding:8,background:'#fef9c3',borderRadius:6,fontSize:11}}>
+              <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontWeight:600,color:'#92400e'}}>
+                <input type="checkbox" checked={ms.fideiussioneAlt?.attiva||false} onChange={e=>updateMilestone(ms.id,{fideiussioneAlt:{...ms.fideiussioneAlt,attiva:e.target.checked,perc:ms.fideiussioneAlt?.perc||5,mesi:ms.fideiussioneAlt?.mesi||12}})}/>
+                📜 Fideiussione bancaria alternativa (incassa subito)
+              </label>
+              {ms.fideiussioneAlt?.attiva&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,marginTop:6}}>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:'#92400e',display:'block'}}>% fideiussione</label>
+                  <input type="number" value={ms.fideiussioneAlt.perc} onChange={e=>updateMilestone(ms.id,{fideiussioneAlt:{...ms.fideiussioneAlt,perc:parseFloat(e.target.value)||0}})} style={{...inp,padding:'4px 8px'}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:10,fontWeight:600,color:'#92400e',display:'block'}}>Durata mesi</label>
+                  <input type="number" value={ms.fideiussioneAlt.mesi} onChange={e=>updateMilestone(ms.id,{fideiussioneAlt:{...ms.fideiussioneAlt,mesi:parseInt(e.target.value)||0}})} style={{...inp,padding:'4px 8px'}}/>
+                </div>
+              </div>}
+            </div>
+          </div>
+        ))}
       </div>
 
       <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
@@ -2720,6 +2821,112 @@ const LabeledField = ({label,children})=>(
 const SI = {width:'100%',border:`1px solid ${T.border}`,borderRadius:6,padding:'7px 10px',fontSize:13,boxSizing:'border-box'};
 
 /* ─── PAGE: NUOVA COMMESSA ───────────────────────────────── */
+/* ─── PAGE: MODALITÀ PAGAMENTO (libreria CRUD) ───────────── */
+const PageModalitaPagamento = ({addMP, updateMP, deleteMP})=>{
+  const [editingId,setEditingId]=useState(null);
+  const [form,setForm]=useState({nome:'',strumento:'Bonifico',giorni:30,riferimento:'DFFM',giorniExtra:0,note:''});
+  const reset = ()=>{ setForm({nome:'',strumento:'Bonifico',giorni:30,riferimento:'DFFM',giorniExtra:0,note:''}); setEditingId(null); };
+  const startEdit = (m)=>{ setEditingId(m.id); setForm({nome:m.nome,strumento:m.strumento,giorni:m.giorni,riferimento:m.riferimento,giorniExtra:m.giorniExtra,note:m.note||''}); };
+  const handleSave = ()=>{
+    if(!form.nome.trim()) return alert('Inserisci il nome (es. "60gg DFFM+10gg RI.BA.")');
+    const payload = {...form, giorni:parseInt(form.giorni)||0, giorniExtra:parseInt(form.giorniExtra)||0};
+    if(editingId) updateMP(editingId, payload); else addMP(payload);
+    reset();
+  };
+  const inp = {border:`1px solid ${T.border}`,borderRadius:6,padding:'6px 10px',fontSize:13,width:'100%',boxSizing:'border-box'};
+  const lab = {fontSize:11,fontWeight:600,color:T.textL,textTransform:'uppercase',letterSpacing:.3,marginBottom:4,display:'block'};
+  return (
+    <div style={{padding:24,maxWidth:1100}}>
+      <div style={{background:T.blueL,border:`1px solid #bfdbfe`,borderRadius:8,padding:14,marginBottom:18,fontSize:13,color:T.blue}}>
+        💡 Definisci qui le modalità di pagamento che riutilizzi su più commesse (es. <b>"60gg DFFM +10gg RI.BA."</b>). Le trovi poi nei dropdown del modulo "Regole pagamento" della commessa.
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:18}}>
+        {/* Form sx */}
+        <Card>
+          <SectionTitle children={editingId?'✏️ Modifica modalità':'➕ Nuova modalità'}/>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Nome (etichetta)</label>
+            <input value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} style={inp} placeholder='es. 60gg DFFM +10gg RI.BA.'/>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Strumento</label>
+            <select value={form.strumento} onChange={e=>setForm({...form,strumento:e.target.value})} style={inp}>
+              <option>Bonifico</option><option>RI.BA.</option><option>Assegno</option><option>Lettera credito</option><option>Contanti</option><option>Altro</option>
+            </select>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+            <div>
+              <label style={lab}>Giorni</label>
+              <input type="number" value={form.giorni} onChange={e=>setForm({...form,giorni:e.target.value})} style={inp}/>
+            </div>
+            <div>
+              <label style={lab}>Riferimento</label>
+              <select value={form.riferimento} onChange={e=>setForm({...form,riferimento:e.target.value})} style={inp}>
+                <option value="DFFM">DFFM (data fattura fine mese)</option>
+                <option value="DF">DF (data fattura)</option>
+                <option value="DR">DR (data ricezione)</option>
+              </select>
+            </div>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>Giorni extra (es. +10gg)</label>
+            <input type="number" value={form.giorniExtra} onChange={e=>setForm({...form,giorniExtra:e.target.value})} style={inp}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <label style={lab}>Note (opzionale)</label>
+            <input value={form.note} onChange={e=>setForm({...form,note:e.target.value})} style={inp} placeholder='es. Standard Sanlorenzo'/>
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <Btn onClick={handleSave} variant='primary' style={{flex:1}}>{editingId?'💾 Aggiorna':'➕ Aggiungi'}</Btn>
+            {editingId&&<Btn onClick={reset} variant='outline'>Annulla</Btn>}
+          </div>
+        </Card>
+
+        {/* Lista dx */}
+        <Card style={{padding:0}}>
+          <div style={{padding:'12px 16px',borderBottom:`1px solid ${T.border}`,fontWeight:700,fontSize:14,background:'#f8fafc',borderRadius:'8px 8px 0 0'}}>
+            Libreria modalità ({(D.modalitaPagamento||[]).length})
+          </div>
+          {(!D.modalitaPagamento||D.modalitaPagamento.length===0) ? (
+            <div style={{padding:32,textAlign:'center',color:T.textL,fontSize:13}}>Nessuna modalità ancora. Aggiungine una a sinistra.</div>
+          ) : (
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead>
+                <tr style={{background:'#f8fafc',color:T.textL,fontSize:11,textTransform:'uppercase'}}>
+                  <th style={{padding:'8px 10px',textAlign:'left'}}>Nome</th>
+                  <th style={{padding:'8px 10px',textAlign:'left'}}>Strumento</th>
+                  <th style={{padding:'8px 10px',textAlign:'right'}}>Giorni</th>
+                  <th style={{padding:'8px 10px',textAlign:'left'}}>Rif.</th>
+                  <th style={{padding:'8px 10px',textAlign:'right'}}>Extra</th>
+                  <th style={{padding:'8px 10px',textAlign:'left'}}>Note</th>
+                  <th style={{padding:'8px 10px',textAlign:'center'}}>Azioni</th>
+                </tr>
+              </thead>
+              <tbody>
+                {D.modalitaPagamento.map(m=>(
+                  <tr key={m.id} style={{borderTop:`1px solid ${T.border}`,background:editingId===m.id?T.blueL:'transparent'}}>
+                    <td style={{padding:'8px 10px',fontWeight:600}}>{m.nome}</td>
+                    <td style={{padding:'8px 10px'}}><Badge text={m.strumento}/></td>
+                    <td style={{padding:'8px 10px',textAlign:'right'}}>{m.giorni}</td>
+                    <td style={{padding:'8px 10px',color:T.textL,fontSize:11}}>{m.riferimento}</td>
+                    <td style={{padding:'8px 10px',textAlign:'right'}}>{m.giorniExtra>0?`+${m.giorniExtra}gg`:'—'}</td>
+                    <td style={{padding:'8px 10px',color:T.textL,fontSize:11}}>{m.note||'—'}</td>
+                    <td style={{padding:'8px 10px',textAlign:'center',whiteSpace:'nowrap'}}>
+                      <button onClick={()=>startEdit(m)} style={{background:'none',border:'none',color:T.blue,cursor:'pointer',marginRight:6,fontSize:14}} title="Modifica">✏️</button>
+                      <button onClick={()=>{ if(confirm(`Eliminare "${m.nome}"?`)) deleteMP(m.id); }} style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:14}} title="Elimina">🗑️</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+};
+
 const PageNuovaCommessa = ({onNav, addCommessa})=>{
   const [step,setStep]=useState(1);
   const [tipo,setTipo]=useState('Commessa');
@@ -6089,6 +6296,7 @@ const App = ()=>{
         madre_id: c.madreId, autonomo: c.autonomo,
         acconto: c.acconto, garanzia: c.garanzia,
         comp_enabled: c.compEnabled,
+        regole_pagamento: c.regolePagamento||null,
       };
       await fetch(`${SB_URL}/rest/v1/commesse`,{
         method:'POST', headers: SB_H_WRITE, body: JSON.stringify(payload),
@@ -6096,6 +6304,40 @@ const App = ()=>{
     } catch(err) {
       console.warn('Commessa salvata solo in sessione (tabella commesse non ancora disponibile):', err.message);
     }
+  },[bumpData]);
+
+  /* CRUD Modalità Pagamento */
+  const addMP = useCallback(async (mp)=>{
+    const tmpId = `tmp-${Date.now()}`;
+    const item = { ...mp, id: tmpId };
+    D.modalitaPagamento.push(item);
+    bumpData();
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/modalita_pagamento`, {
+        method:'POST', headers:{...SB_H_WRITE, Prefer:'return=representation'},
+        body: JSON.stringify({ nome:mp.nome, strumento:mp.strumento, giorni:mp.giorni, riferimento:mp.riferimento, giorni_extra:mp.giorniExtra, note:mp.note||null }),
+      });
+      if(r.ok){ const [saved] = await r.json(); item.id = saved.id; bumpData(); }
+    } catch(err){ console.warn('MP solo in sessione:', err.message); }
+  },[bumpData]);
+  const updateMP = useCallback(async (id, patch)=>{
+    const i = D.modalitaPagamento.findIndex(m=>m.id===id);
+    if(i<0) return;
+    Object.assign(D.modalitaPagamento[i], patch);
+    bumpData();
+    try {
+      await fetch(`${SB_URL}/rest/v1/modalita_pagamento?id=eq.${id}`, {
+        method:'PATCH', headers:SB_H_WRITE,
+        body: JSON.stringify({ nome:patch.nome, strumento:patch.strumento, giorni:patch.giorni, riferimento:patch.riferimento, giorni_extra:patch.giorniExtra, note:patch.note||null }),
+      });
+    } catch(err){ console.warn('Update MP solo in sessione:', err.message); }
+  },[bumpData]);
+  const deleteMP = useCallback(async (id)=>{
+    D.modalitaPagamento = D.modalitaPagamento.filter(m=>m.id!==id);
+    bumpData();
+    try {
+      await fetch(`${SB_URL}/rest/v1/modalita_pagamento?id=eq.${id}`, { method:'DELETE', headers:SB_H_WRITE });
+    } catch(err){ console.warn('Delete MP solo in sessione:', err.message); }
   },[bumpData]);
 
   /* Aggiorna una commessa esistente: merge campi + persistenza su Supabase via PATCH */
@@ -6117,6 +6359,7 @@ const App = ()=>{
         madre_id: c.madreId, autonomo: c.autonomo,
         acconto: c.acconto, garanzia: c.garanzia,
         comp_enabled: c.compEnabled,
+        regole_pagamento: c.regolePagamento||null,
       };
       await fetch(`${SB_URL}/rest/v1/commesse?id=eq.${id}`, {
         method:'PATCH', headers: SB_H_WRITE, body: JSON.stringify(payload),
@@ -6159,6 +6402,7 @@ const App = ()=>{
           {page==='storicoComp'&&<PageStoricoComp/>}
           {page==='noteCredito'&&<PageNoteCredito/>}
           {page==='nuovaCommessa'&&<PageNuovaCommessa onNav={navigate} addCommessa={addCommessa}/>}
+          {page==='modalitaPagamento'&&<PageModalitaPagamento addMP={addMP} updateMP={updateMP} deleteMP={deleteMP}/>}
           {page==='sal'&&<PageSAL/>}
           {page==='listaExtra'&&<PageListaExtra onNav={navigate} openModal={openModal}/>}
           {page==='regoleEcon'&&<PageRegoleEcon selected={selExtra}/>}
