@@ -3932,8 +3932,7 @@ const PageModalitaPagamento = ({addMP, updateMP, deleteMP})=>{
   );
 };
 
-const PageNuovaCommessa = ({onNav, addCommessa})=>{
-  const [step,setStep]=useState(1);
+const PageNuovaCommessa = ({onNav, addCommessa, addTemplate, deleteTemplate})=>{
   const [tipo,setTipo]=useState('Commessa');
   const [nuovaCreata,setNuovaCreata]=useState(null);
 
@@ -4068,30 +4067,43 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
                     setAiBusy(true);
                     const tipi=['acconto','sal','saldo','garanzia','fideiussione','altro'];
                     const trig=['inizio_lavori','sal_mensile','fine_lavori','x_mesi_dopo_fine','avanzamento_perc','altro'];
-                    const prompt=`Sei un assistente che estrae dati da contratti/ordini italiani del settore navale (Azimut Benetti, Sanlorenzo, TISG).
+                    // Lista anagrafica per match cliente
+                    const clientiAnagrafica = (D.anagrafica||[]).filter(a=>a.tipo==='Cliente'||!a.tipo).map(a=>a.nome).slice(0,30);
+                    const prompt=`Sei un assistente che estrae dati da CONTRATTI/ORDINI di clienti del settore navale per la società italiana EFFEVI SRL (cantieri navali, appaltatore).
 
-Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, niente backtick) con questa struttura:
+REGOLE FONDAMENTALI:
+1. EFFEVI SRL è L'APPALTATORE/FORNITORE (NON è mai il "cliente"). Il cliente di Effevi è chi commissiona il lavoro: tipicamente AZIMUT-BENETTI SPA, SANLORENZO SPA, THE ITALIAN SEA GROUP SPA (TISG). Ignora completamente il nome/indirizzo Effevi.
+2. Se il PDF ha un valore come BX103/BX104/BX105/BX106/BX107/BMP/BXL → cliente è SEMPRE "AZIMUT-BENETTI SPA" e tipo_lavoro è "Commessa".
+3. Se ci sono codici tipo SLA/SLM/XSP o numerici 5 cifre → cliente è "SANLORENZO S.P.A. IN SIGLA SL S.P.A." (o "SAN LORENZO SPA").
+4. Se ci sono codici 600/606/614/617/598 → cliente è "THE ITALIAN SEA GROUP SPA".
+5. Importo > 100.000 € e SAL mensili → tipo_lavoro = "Commessa". Importo basso e singola fattura → "Ordine".
+6. Per le milestone Benetti standard: 10% acconto + 84% SAL mensili + 3% saldo fine lavori + 3% garanzia 12 mesi.
+
+CLIENTI ESISTENTI IN ANAGRAFICA (preferisci uno di questi se possibile):
+${clientiAnagrafica.join(', ')}
+
+Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backtick):
 
 {
-  "codice_commessa": "es. BX107 o C602 o SLA044/167 (se non chiaro: null)",
-  "nr_ordine": "es. MYOA22019935/APP",
-  "cliente": "ragione sociale completa",
-  "nome": "descrizione breve lavori",
-  "tipo_lavoro": uno tra ["Commessa","Ordine","Extra"],
-  "importo_totale": numero in euro senza separatori (es. 770000),
+  "codice_commessa": "es. BX107 (codice usato come riferimento commessa, NON il codice fornitore Effevi)",
+  "nr_ordine": "es. MYOA22019935/APP (numero ordine cliente)",
+  "cliente": "ragione sociale completa del CLIENTE/COMMITTENTE (chi paga). NON Effevi.",
+  "nome": "descrizione breve lavori (es. 'Impianti idraulici tubolature carpenteria')",
+  "tipo_lavoro": "Commessa" oppure "Ordine" oppure "Extra",
+  "importo_totale": numero in euro senza separatori,
   "data_ordine": "YYYY-MM-DD",
   "data_consegna": "YYYY-MM-DD se presente",
-  "modalita_fatturazione": uno tra ["SAL mensile","SAL bimestrale","Milestone","Soluzione unica","Libera"],
-  "termini_pagamento_default": "es. '30gg FM' o '60gg FM' (per il primo step prima delle milestone)",
+  "modalita_fatturazione": "SAL mensile" o "SAL bimestrale" o "Milestone" o "Soluzione unica" o "Libera",
+  "termini_pagamento_default": "es. '60gg FM' (per il SAL principale)",
   "milestone": [
     {
       "titolo": "es. Acconto inizio lavori",
       "tipo": uno tra ${JSON.stringify(tipi)},
       "perc": numero 0-100,
       "trigger": uno tra ${JSON.stringify(trig)},
-      "triggerExtra": "stringa numerica solo se trigger=x_mesi_dopo_fine o avanzamento_perc",
+      "triggerExtra": "stringa numerica solo per x_mesi_dopo_fine/avanzamento_perc",
       "modalita_pagamento_label": "es. RI.BA. 60gg DFFM +10gg",
-      "condizioni": "condizioni testuali",
+      "condizioni": "condizioni testuali brevi",
       "fideiussione_alt_perc": numero o null,
       "fideiussione_alt_mesi": numero o null
     }
@@ -4123,7 +4135,22 @@ Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, nie
                       }
                       if(ext.codice_commessa) setCodice(ext.codice_commessa);
                       if(ext.nr_ordine) setNrOrdine(ext.nr_ordine);
-                      if(ext.cliente) setCliente(ext.cliente);
+                      if(ext.cliente) {
+                        // Match con anagrafica per dropdown: cerca il nome più simile
+                        const norm = (s)=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+                        const target = norm(ext.cliente);
+                        // Salta se è Effevi (errore comune)
+                        if(/effevi/i.test(ext.cliente)) {
+                          alert(`⚠ L'AI ha confuso EFFEVI con il cliente.\nCorreggi manualmente il dropdown Cliente.`);
+                        } else {
+                          const match = (D.anagrafica||[]).find(a=>norm(a.nome)===target)
+                                    || (D.anagrafica||[]).find(a=>{
+                                          const an = norm(a.nome);
+                                          return an.length>5 && (an.includes(target.slice(0,8)) || target.includes(an.slice(0,8)));
+                                       });
+                          setCliente(match?match.nome:ext.cliente);
+                        }
+                      }
                       if(ext.nome) setNome(ext.nome);
                       if(ext.tipo_lavoro && ['Commessa','Ordine','Extra'].includes(ext.tipo_lavoro)) setTipo(ext.tipo_lavoro);
                       if(ext.importo_totale) setImporto(String(ext.importo_totale));
@@ -4359,6 +4386,9 @@ Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, nie
           <div style={{display:'flex',justifyContent:'space-between'}}>
             <Btn onClick={()=>setStep(2)} variant='outline'>← Modifica regole</Btn>
             <Btn onClick={()=>{
+              // Recupera milestone AI estratte da PDF (se presenti)
+              const aiMs = window._aiMilestonePending || [];
+              const totPercAI = aiMs.reduce((a,m)=>a+(parseFloat(m.perc)||0),0);
               const nuova = {
                 id: `C${Date.now()}`,
                 codice, nrOrdine, nome, cliente,
@@ -4374,6 +4404,7 @@ Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, nie
                 autonomo: tipo==='Extra'?autonomo:null,
                 acconto: accActive ? {tipo:accTipo,val:accVal,regola:accRegola,importo:accImporto} : null,
                 garanzia: garActive ? {tipo:garTipo,val:garVal,evento:garEvento,svincolo:garSvincolo} : null,
+                regolePagamento: aiMs.length>0 ? { milestone: aiMs, totalePerc: totPercAI } : null,
                 compEnabled,
                 contratto: contrattoFile||null,
                 criticita: [],
@@ -4382,6 +4413,7 @@ Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, nie
               };
               // Il push è fatto da addCommessa (in App) — non pushiamo qui
               if(addCommessa) addCommessa(nuova);
+              window._aiMilestonePending = null; // reset per la prossima volta
               setNuovaCreata(nuova);
               setStep(4);
             }}>✓ Conferma creazione</Btn>
@@ -7619,7 +7651,7 @@ const App = ()=>{
           {page==='attiveSub'&&<PageAttiveSub openModal={openModal}/>}
           {page==='storicoComp'&&<PageStoricoComp/>}
           {page==='noteCredito'&&<PageNoteCredito/>}
-          {page==='nuovaCommessa'&&<PageNuovaCommessa onNav={navigate} addCommessa={addCommessa}/>}
+          {page==='nuovaCommessa'&&<PageNuovaCommessa onNav={navigate} addCommessa={addCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
           {page==='modalitaPagamento'&&<PageModalitaPagamento addMP={addMP} updateMP={updateMP} deleteMP={deleteMP}/>}
           {page==='analisiExtra'&&<PageAnalisiExtra onNav={navigate}/>}
           {page==='sal'&&<PageSAL/>}
