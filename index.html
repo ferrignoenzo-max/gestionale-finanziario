@@ -1504,6 +1504,8 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
   const [garScadContrattuale,setGarScadContrattuale]=useState(c.garanzia?.scadenzaContrattuale||'');
   const [compEnabled,setCompEnabled]=useState(!!c.compEnabled);
   const [autonomo,setAutonomo]=useState(!!c.autonomo);
+  const [contratto,setContratto]=useState(c.contratto||null);
+  const [uploadingPdf,setUploadingPdf]=useState(false);
   // Regole pagamento (milestone variabili)
   const [milestone,setMilestone]=useState(c.regolePagamento?.milestone||[]);
   const addMilestone = ()=> setMilestone([...milestone, {id:`ms-${Date.now()}`, titolo:'', tipo:'sal', perc:'', trigger:'sal_mensile', triggerExtra:'', modalitaPagamentoId:'', condizioni:'', fideiussioneAlt:{attiva:false, perc:5, mesi:12}}]);
@@ -1526,6 +1528,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
       dataFine: dataFine||null,
       pagMode, fattMode,
       autonomo, compEnabled,
+      contratto: contratto||null,
       regolePagamento: milestone.length>0 ? { milestone, totalePerc: totPerc } : null,
       acconto: accActive ? { tipo:accTipo, val:parseFloat(accVal)||0, regola:accRegola, residuo:c.acconto?.residuo||0, recuperato:c.acconto?.recuperato||0 } : null,
       garanzia: garActive ? {
@@ -1615,6 +1618,70 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
             <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
               <input type="checkbox" checked={compEnabled} onChange={e=>setCompEnabled(e.target.checked)}/> Compensazioni abilitate
             </label>
+          </div>
+
+          {/* 📎 Upload contratto */}
+          <div style={{marginTop:14,padding:10,background:'#f0f9ff',border:`1px solid #bae6fd`,borderRadius:6}}>
+            <label style={{...lab,color:'#0369a1'}}>📎 Contratto / Ordine PDF</label>
+            {contratto ? (
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <span style={{flex:1,fontSize:12,color:T.text,wordBreak:'break-all'}}>📄 {contratto.name} {contratto.size?`(${(contratto.size/1024).toFixed(0)} KB)`:''}</span>
+                {contratto.url && <button type="button" onClick={()=>window.open(contratto.url,'_blank')} style={{background:'#0369a1',color:'#fff',border:'none',padding:'4px 10px',borderRadius:4,fontSize:11,cursor:'pointer'}}>👁 Apri</button>}
+                <button type="button" onClick={()=>setContratto(null)} style={{background:'#fff',color:T.red,border:`1px solid ${T.red}`,padding:'4px 10px',borderRadius:4,fontSize:11,cursor:'pointer'}}>🗑</button>
+              </div>
+            ) : (
+              <div>
+                <input type="file" accept="application/pdf" disabled={uploadingPdf} onChange={async e=>{
+                  const file = e.target.files?.[0]; if(!file) return;
+                  setUploadingPdf(true);
+                  try {
+                    // Upload su Supabase Storage bucket 'contratti'
+                    const path = `${c.id}/${Date.now()}_${file.name.replace(/[^\w.-]/g,'_')}`;
+                    const r = await fetch(`${SB_URL}/storage/v1/object/contratti/${path}`, {
+                      method:'POST',
+                      headers:{ 'Authorization':`Bearer ${SB_KEY}`, 'apikey':SB_KEY, 'x-upsert':'true', 'Content-Type':file.type },
+                      body: file,
+                    });
+                    if(r.ok) {
+                      const url = `${SB_URL}/storage/v1/object/public/contratti/${path}`;
+                      setContratto({ name:file.name, url, size:file.size, path });
+                    } else {
+                      // Fallback: dataURL inline (nessuna persistenza tra sessioni)
+                      const reader = new FileReader();
+                      reader.onload = ()=> setContratto({ name:file.name, url:reader.result, size:file.size, inline:true });
+                      reader.readAsDataURL(file);
+                      alert('Upload bucket non disponibile. PDF allegato solo nella sessione corrente.');
+                    }
+                  } catch(err){ alert('Errore upload: '+err.message); }
+                  setUploadingPdf(false);
+                  e.target.value='';
+                }} style={{...inp,padding:'4px',cursor:'pointer'}}/>
+                {uploadingPdf && <div style={{fontSize:11,color:'#0369a1',marginTop:4}}>⏳ Caricamento in corso...</div>}
+              </div>
+            )}
+            {contratto && (
+              <button type="button" onClick={()=>{
+                if(/azimut|benetti/i.test(cliente)) {
+                  const tpl = (D.templateRegole||[]).find(t=>/benetti/i.test(t.nome));
+                  if(tpl && window.confirm(`Rilevato cliente Azimut Benetti.\nApplicare template "${tpl.nome}" (${tpl.regolePagamento.milestone.length} rate)?`)) {
+                    const newMs = (tpl.regolePagamento.milestone||[]).map(m=>({...m, id:`ms-${Date.now()}-${Math.random().toString(36).slice(2,7)}`}));
+                    setMilestone(newMs);
+                    alert(`Template Benetti applicato. Verifica gli importi e le date.`);
+                  }
+                } else if(/sea\s*group|tisg/i.test(cliente)) {
+                  alert('Cliente TISG rilevato. Template TISG ancora da configurare — usa "Salva come template" su una commessa pilota e poi rilancia.');
+                } else if(/sanlorenzo|san\s*lorenzo/i.test(cliente)) {
+                  alert('Cliente Sanlorenzo rilevato. Template Sanlorenzo ancora da configurare.');
+                } else {
+                  alert('Cliente non riconosciuto per auto-compilazione. Imposta il cliente prima.');
+                }
+              }} style={{marginTop:8,background:'#0369a1',color:'#fff',border:'none',padding:'6px 12px',borderRadius:5,fontSize:12,cursor:'pointer',fontWeight:600}}>
+                🤖 Auto-compila regole dal contratto (per cliente)
+              </button>
+            )}
+            <div style={{fontSize:10,color:T.textL,fontStyle:'italic',marginTop:6}}>
+              Estrazione testo automatica dei dati (importo, ordine, scadenze) — prossima iterazione.
+            </div>
           </div>
         </div>
 
