@@ -1712,6 +1712,9 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
         svincolo:garScadenza||null,
         durataMesi:parseInt(garDurataMesi)||24,
         scadenzaContrattuale: garScadContrattuale || (dataFine && garDurataMesi ? new Date(new Date(dataFine).getTime()+parseInt(garDurataMesi)*30*86400000).toISOString().slice(0,10) : null),
+        // 🔐 IMPORTANTE: flag di applicazione (default ON quando garanzia attiva → trattenuta su fattura SAL)
+        trattenutaSuFatture: c.garanzia?.trattenutaSuFatture !== false, // default true salvo che l'utente abbia messo false
+        applicaSuAcconto: c.garanzia?.applicaSuAcconto === true,
         residuo:c.garanzia?.residuo||0,
         nonIncassata:c.garanzia?.nonIncassata||0
       } : null,
