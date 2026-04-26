@@ -1925,11 +1925,17 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
         const ms = c.regolePagamento?.milestone || [];
         const fattAttive = D.fattureAttive.filter(f=>f.commessa===c.id);
         // Imponibile esclude IVA e bollo. Lordo = imponibile + IVA + bollo (~2€)
-        // Per i calcoli avanzamento usiamo l'imponibile (vero ammontare prestazione)
         const impOf = (f) => (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
-        const totFatt = fattAttive.reduce((a,f)=>a+impOf(f),0);
+        // Distingue fatture commessa principale (SAL+acconto+saldo+garanzia) da fatture EXTRA/BAP
+        const isExtra = (f) => /\bextra\b|\bbap\b/i.test(f.oggetto||'');
+        const fattExtra = fattAttive.filter(isExtra);
+        const fattCommessa = fattAttive.filter(f=>!isExtra(f));
+        const totFattCommessa = fattCommessa.reduce((a,f)=>a+impOf(f),0);
+        const totFattExtra = fattExtra.reduce((a,f)=>a+impOf(f),0);
+        const totFatt = totFattCommessa + totFattExtra;
         const totIncassato = fattAttive.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+impOf(f),0);
         const importoCommessa = c.importoContrattuale||0;
+        const daFatturare = Math.max(0, importoCommessa - totFattCommessa);
 
         // Match euristico: associa fatture a milestone in base al tipoRif/oggetto
         const fattureMS = (m) => {
@@ -1950,36 +1956,40 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
               <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
                 <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Importo commessa</div>
                 <div style={{fontSize:20,fontWeight:800,color:T.text}}>{fmt(importoCommessa)}</div>
+                <div style={{fontSize:10,color:T.textL}}>contratto base</div>
               </div>
               <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
-                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(totFatt)}</div>
-                <div style={{fontSize:10,color:T.textL}}>{importoCommessa>0?Math.round(totFatt/importoCommessa*100):0}% del contratto</div>
+                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Commessa (SAL)</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(totFattCommessa)}</div>
+                <div style={{fontSize:10,color:T.textL}}>{importoCommessa>0?(totFattCommessa/importoCommessa*100).toFixed(1):0}% del contratto · {fattCommessa.length} fatt.</div>
               </div>
-              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.amber}`}}>
-                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Incassato</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.amber}}>{fmt(totIncassato)}</div>
+              <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.purple}`}}>
+                <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Extra</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fmt(totFattExtra)}</div>
+                <div style={{fontSize:10,color:T.textL}}>fuori contratto · {fattExtra.length} fatt.</div>
               </div>
               <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
                 <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
-                <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(Math.max(0,importoCommessa-totFatt))}</div>
+                <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(daFatturare)}</div>
+                <div style={{fontSize:10,color:T.textL}}>residuo contratto base</div>
               </div>
             </div>
 
-            {/* Progress bar */}
+            {/* Progress bar avanzamento commessa principale (esclude extra) */}
             <Card>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-                <span style={{fontWeight:700,fontSize:13}}>Avanzamento fatturazione</span>
-                <span style={{fontSize:12,color:T.textL}}>{fmt(totFatt)} / {fmt(importoCommessa)}</span>
+                <span style={{fontWeight:700,fontSize:13}}>Avanzamento fatturazione commessa (esclude Extra)</span>
+                <span style={{fontSize:12,color:T.textL}}>{fmt(totFattCommessa)} / {fmt(importoCommessa)} ({importoCommessa>0?(totFattCommessa/importoCommessa*100).toFixed(1):0}%)</span>
               </div>
               <div style={{height:14,background:'#e2e8f0',borderRadius:7,overflow:'hidden',position:'relative'}}>
-                <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${importoCommessa>0?Math.min(100,totFatt/importoCommessa*100):0}%`,background:T.green,transition:'width .4s'}}/>
-                <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${importoCommessa>0?Math.min(100,totIncassato/importoCommessa*100):0}%`,background:T.amber,opacity:.7}}/>
+                <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${importoCommessa>0?Math.min(100,totFattCommessa/importoCommessa*100):0}%`,background:T.green,transition:'width .4s'}}/>
               </div>
-              <div style={{display:'flex',gap:14,fontSize:11,marginTop:6}}>
-                <span><span style={{display:'inline-block',width:10,height:10,background:T.green,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Fatturato</span>
-                <span><span style={{display:'inline-block',width:10,height:10,background:T.amber,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Incassato</span>
-                <span><span style={{display:'inline-block',width:10,height:10,background:'#e2e8f0',borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Residuo</span>
+              <div style={{display:'flex',gap:14,fontSize:11,marginTop:8,justifyContent:'space-between'}}>
+                <div style={{display:'flex',gap:14}}>
+                  <span><span style={{display:'inline-block',width:10,height:10,background:T.green,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Fatturato SAL</span>
+                  <span><span style={{display:'inline-block',width:10,height:10,background:'#e2e8f0',borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Da fatturare</span>
+                </div>
+                {totFattExtra>0 && <span style={{color:T.purple,fontWeight:600}}>+ Extra fuori contratto: {fmt(totFattExtra)}</span>}
               </div>
             </Card>
 
