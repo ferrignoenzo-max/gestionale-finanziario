@@ -743,6 +743,7 @@ const NAV=[
   {section:'COMMESSE & CONTRATTI'},
   {id:'nuovaCommessa',label:'➕ Nuova Commessa',icon:'＋'},
   {id:'watchlist',label:'Watchlist Commesse',icon:'⊞'},
+  {id:'analisiExtra',label:'📊 Analisi Extra',icon:'📊'},
   {id:'modalitaPagamento',label:'💳 Modalità Pagamento',icon:'💳'},
   {id:'garanzieAcc',label:'Garanzie & Acconti',icon:'🔒'},
   {id:'storicoComp',label:'Compensazioni',icon:'⇌'},
@@ -756,7 +757,7 @@ const NAV=[
 ];
 
 const Sidebar = ({page,onNav,onSearch})=>{
-  const mainPages=['dashboard','anagrafica','scadenziario','fattureAttive','fatturePassive','noteCredito','utenze','fornitori','subappaltatori','nuovaCommessa','watchlist','modalitaPagamento','garanzieAcc','storicoComp','primaNota','banca','report','auditLog','importa'];
+  const mainPages=['dashboard','anagrafica','scadenziario','fattureAttive','fatturePassive','noteCredito','utenze','fornitori','subappaltatori','nuovaCommessa','watchlist','analisiExtra','modalitaPagamento','garanzieAcc','storicoComp','primaNota','banca','report','auditLog','importa'];
   return (
     <div style={{width:220,background:T.sidebar,height:'100vh',display:'flex',flexDirection:'column',flexShrink:0,overflowY:'auto'}}>
       <div style={{padding:'16px 16px 10px'}}>
@@ -804,7 +805,7 @@ const Sidebar = ({page,onNav,onSearch})=>{
 };
 
 /* ─── HEADER ──────────────────────────────────────────────── */
-const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
+const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
 const Header = ({page,onAI,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
@@ -1910,24 +1911,30 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                   </tr>
                 </thead>
                 <tbody>
-                  {fattureSALDyn.map(f=>{
-                    const imp = _impOf(f);
-                    const pct = c.importoContrattuale>0 ? (imp/c.importoContrattuale*100) : 0;
-                    cum += pct;
-                    const tipoLabel = f.tipoRifOverride==='Acconto' || /acconto/i.test(f.oggetto||'') ? '💰 Acconto' : '📊 SAL';
-                    return (
-                      <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
-                        <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
-                        <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
-                        <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
-                        <td style={{padding:'6px 12px',fontSize:11}}>{tipoLabel}</td>
-                        <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700}}>{fmt(imp)}</td>
-                        <td style={{padding:'6px 12px',textAlign:'right',color:T.blue,fontWeight:600}}>{pct.toFixed(2)}%</td>
-                        <td style={{padding:'6px 12px',textAlign:'right',color:T.green,fontWeight:700}}>{cum.toFixed(2)}%</td>
-                        <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
-                      </tr>
-                    );
-                  })}
+                  {(()=>{
+                    let salN = 0;
+                    return fattureSALDyn.map(f=>{
+                      const imp = _impOf(f);
+                      const pct = c.importoContrattuale>0 ? (imp/c.importoContrattuale*100) : 0;
+                      cum += pct;
+                      const isAcc = f.tipoRifOverride==='Acconto' || /acconto/i.test(f.oggetto||'');
+                      if(!isAcc) salN++;
+                      const tipoLabel = isAcc ? '💰 Acconto' : `📊 ${salN}° SAL`;
+                      const tipoColor = isAcc ? T.purple : T.blue;
+                      return (
+                        <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                          <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                          <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
+                          <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
+                          <td style={{padding:'6px 12px',fontSize:11,fontWeight:700,color:tipoColor}}>{tipoLabel}</td>
+                          <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700}}>{fmt(imp)}</td>
+                          <td style={{padding:'6px 12px',textAlign:'right',color:T.blue,fontWeight:600}}>{pct.toFixed(2)}%</td>
+                          <td style={{padding:'6px 12px',textAlign:'right',color:T.green,fontWeight:700}}>{cum.toFixed(2)}%</td>
+                          <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             );
@@ -3365,6 +3372,141 @@ const LabeledField = ({label,children})=>(
 const SI = {width:'100%',border:`1px solid ${T.border}`,borderRadius:6,padding:'7px 10px',fontSize:13,boxSizing:'border-box'};
 
 /* ─── PAGE: NUOVA COMMESSA ───────────────────────────────── */
+/* ─── PAGE: ANALISI EXTRA (classifica commesse per % extra) ─ */
+const PageAnalisiExtra = ({onNav})=>{
+  const [sortKey,setSortKey] = useState('pctExtra'); // 'pctExtra' | 'totExtra' | 'codice' | 'cliente'
+  const [sortDir,setSortDir] = useState('desc');
+  const impOf = (f) => (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
+  const isExtra = (f) => /\bextra\b|\bbap\b/i.test(f.oggetto||'');
+  const isSaldo = (f) => f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
+  const isGaranzia = (f) => f.tipoRifOverride==='Garanzia' || /garanzia|svincolo/i.test(f.oggetto||'');
+  const ordRoot = (s)=> String(s||'').toUpperCase().replace(/\s+/g,'').split('/')[0];
+  const estrOrd = (s)=>{ if(!s) return ''; const m=String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i); return m?ordRoot(m[0]):''; };
+
+  // Calcolo per ogni commessa
+  const rows = D.commesse.filter(c=>c.tipoLavoro==='Commessa').map(c=>{
+    const fattureC = D.fattureAttive.filter(f=>f.commessa===c.id);
+    const ordPrinc = ordRoot(c.nrOrdine||'');
+    const isMainOrd = (f)=> { if(!ordPrinc) return true; const o=estrOrd(f.oggetto); return !o || o===ordPrinc; };
+    const fattureSAL = fattureC.filter(f=>!isExtra(f) && !isSaldo(f) && !isGaranzia(f) && isMainOrd(f));
+    const fattureExtra = fattureC.filter(f=>isExtra(f) || !isMainOrd(f));
+    const totSAL = fattureSAL.reduce((a,f)=>a+impOf(f),0);
+    const totExtra = fattureExtra.reduce((a,f)=>a+impOf(f),0);
+    const totFatt = totSAL + totExtra;
+    const importo = Number(c.importoContrattuale)||0;
+    const pctExtra = importo>0 ? (totExtra/importo*100) : 0;
+    const pctSAL   = importo>0 ? (totSAL/importo*100) : 0;
+    return {c, totSAL, totExtra, totFatt, importo, pctExtra, pctSAL,
+            nFattExtra: fattureExtra.length, nFattSAL: fattureSAL.length};
+  }).filter(r=>r.totExtra>0 || r.importo>0);
+
+  // Ordina
+  const sorted = [...rows].sort((a,b)=>{
+    const dir = sortDir==='asc'?1:-1;
+    if(sortKey==='pctExtra') return (a.pctExtra-b.pctExtra)*dir;
+    if(sortKey==='totExtra') return (a.totExtra-b.totExtra)*dir;
+    if(sortKey==='codice')   return a.c.codice.localeCompare(b.c.codice)*dir;
+    if(sortKey==='cliente')  return (a.c.cliente||'').localeCompare(b.c.cliente||'')*dir;
+    return 0;
+  });
+
+  // Totali aggregati
+  const totExtraGlobal = rows.reduce((a,r)=>a+r.totExtra,0);
+  const totSALGlobal = rows.reduce((a,r)=>a+r.totSAL,0);
+  const totContrattoGlobal = rows.reduce((a,r)=>a+r.importo,0);
+  const pctExtraGlobal = totContrattoGlobal>0 ? (totExtraGlobal/totContrattoGlobal*100) : 0;
+  const commesseConExtra = rows.filter(r=>r.totExtra>0).length;
+
+  const ThSort = ({k,label,right})=>{
+    const active=sortKey===k;
+    return (
+      <th onClick={()=>{ if(active) setSortDir(sortDir==='asc'?'desc':'asc'); else { setSortKey(k); setSortDir('desc'); } }}
+        style={{padding:'8px 12px',cursor:'pointer',userSelect:'none',textAlign:right?'right':'left',color:active?T.blue:T.textL,fontWeight:active?700:600,fontSize:11,textTransform:'uppercase',borderBottom:`1px solid ${T.border}`}}>
+        {label}{active?(sortDir==='asc'?' ▲':' ▼'):''}
+      </th>
+    );
+  };
+
+  return (
+    <div style={{padding:24}}>
+      {/* Box info */}
+      <div style={{background:T.purpleL,border:`1px solid #c4b5fd`,borderRadius:8,padding:14,marginBottom:18,fontSize:13,color:T.purple}}>
+        💡 Questa vista mostra <b>quanto stai fatturando in extra</b> oltre al contratto base, per ciascuna commessa. Più alta è la % Extra, più i lavori effettivi divergono dall'ambito iniziale (utile per analisi redditività e revisioni di prezzo future).
+      </div>
+
+      {/* KPI aggregate */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:18}}>
+        <KPICard label="Totale Extra fatturati" value={fmt(totExtraGlobal)} sub={`${commesseConExtra} commesse con extra`} color={T.purple} />
+        <KPICard label="% Extra media globale" value={pctExtraGlobal.toFixed(1)+'%'} sub={`Su ${fmt(totContrattoGlobal)} di contratti`} color={T.purple} />
+        <KPICard label="Totale SAL fatturati" value={fmt(totSALGlobal)} sub="Contratto base" color={T.green} />
+        <KPICard label="Commesse analizzate" value={rows.length} sub="Solo tipo Commessa" color={T.blue} />
+      </div>
+
+      {/* Tabella classifica */}
+      <Card style={{padding:0}}>
+        <div style={{padding:'12px 16px',borderBottom:`1px solid ${T.border}`,fontWeight:700,fontSize:14,background:'#f8fafc',borderRadius:'8px 8px 0 0'}}>
+          📊 Classifica Commesse per Extra ({sorted.length})
+          <span style={{fontWeight:400,color:T.textL,marginLeft:8,fontSize:11}}>click su colonna per ordinare</span>
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+            <thead>
+              <tr style={{background:'#f8fafc'}}>
+                <ThSort k="codice" label="Commessa"/>
+                <ThSort k="cliente" label="Cliente"/>
+                <th style={{padding:'8px 12px',textAlign:'right',color:T.textL,fontSize:11,textTransform:'uppercase',borderBottom:`1px solid ${T.border}`}}>Contratto</th>
+                <th style={{padding:'8px 12px',textAlign:'right',color:T.textL,fontSize:11,textTransform:'uppercase',borderBottom:`1px solid ${T.border}`}}>SAL fatturato</th>
+                <ThSort k="totExtra" label="Extra fatturato" right/>
+                <ThSort k="pctExtra" label="% Extra" right/>
+                <th style={{padding:'8px 12px',textAlign:'left',color:T.textL,fontSize:11,textTransform:'uppercase',borderBottom:`1px solid ${T.border}`}}>Bar</th>
+                <th style={{padding:'8px 12px',textAlign:'center',color:T.textL,fontSize:11,textTransform:'uppercase',borderBottom:`1px solid ${T.border}`}}>Apri</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map(r=>{
+                const danger = r.pctExtra>30;
+                const warn = r.pctExtra>15 && r.pctExtra<=30;
+                return (
+                  <tr key={r.c.id} style={{borderTop:`1px solid ${T.border}`,background:danger?'rgba(168,85,247,0.06)':'transparent'}}>
+                    <td style={{padding:'8px 12px'}}>
+                      <div style={{fontWeight:700,color:T.blue,cursor:'pointer'}} onClick={()=>onNav('dettaglioCommessa',r.c)}>{r.c.codice}</div>
+                      <div style={{fontSize:10,color:T.textL,maxWidth:150,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.c.nome}</div>
+                    </td>
+                    <td style={{padding:'8px 12px',color:T.textL,fontSize:11,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.c.cliente}</td>
+                    <td style={{padding:'8px 12px',textAlign:'right',fontWeight:600}}>{r.importo>0?fmt(r.importo):<span style={{color:T.textL,fontStyle:'italic'}}>n/d</span>}</td>
+                    <td style={{padding:'8px 12px',textAlign:'right',color:T.green,fontWeight:600}}>{fmt(r.totSAL)}</td>
+                    <td style={{padding:'8px 12px',textAlign:'right',color:T.purple,fontWeight:700}}>{fmt(r.totExtra)}</td>
+                    <td style={{padding:'8px 12px',textAlign:'right',fontWeight:800,fontSize:14,color:danger?T.red:warn?'#92400e':T.purple}}>
+                      {r.importo>0?r.pctExtra.toFixed(1)+'%':'—'}
+                    </td>
+                    <td style={{padding:'8px 12px',minWidth:120}}>
+                      {r.importo>0 && (
+                        <div style={{height:8,background:'#e2e8f0',borderRadius:4,overflow:'hidden',position:'relative'}}>
+                          <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${Math.min(100,r.pctSAL)}%`,background:T.green}}/>
+                          <div style={{position:'absolute',left:`${Math.min(100,r.pctSAL)}%`,top:0,height:'100%',width:`${Math.min(100-r.pctSAL,r.pctExtra)}%`,background:T.purple}}/>
+                        </div>
+                      )}
+                    </td>
+                    <td style={{padding:'8px 12px',textAlign:'center'}}>
+                      <Btn variant='ghost' size='sm' onClick={()=>onNav('dettaglioCommessa',r.c)}>→</Btn>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <div style={{marginTop:14,fontSize:11,color:T.textL,display:'flex',gap:14}}>
+        <span><span style={{display:'inline-block',width:10,height:10,background:T.green,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>SAL contratto base</span>
+        <span><span style={{display:'inline-block',width:10,height:10,background:T.purple,borderRadius:2,marginRight:4,verticalAlign:'middle'}}/>Extra fatturati</span>
+        <span style={{marginLeft:'auto'}}>Soglia attenzione: % Extra &gt; 15% (ambra), &gt; 30% (rosso)</span>
+      </div>
+    </div>
+  );
+};
+
 /* ─── PAGE: MODALITÀ PAGAMENTO (libreria CRUD) ───────────── */
 const PageModalitaPagamento = ({addMP, updateMP, deleteMP})=>{
   const [editingId,setEditingId]=useState(null);
@@ -6947,6 +7089,7 @@ const App = ()=>{
           {page==='noteCredito'&&<PageNoteCredito/>}
           {page==='nuovaCommessa'&&<PageNuovaCommessa onNav={navigate} addCommessa={addCommessa}/>}
           {page==='modalitaPagamento'&&<PageModalitaPagamento addMP={addMP} updateMP={updateMP} deleteMP={deleteMP}/>}
+          {page==='analisiExtra'&&<PageAnalisiExtra onNav={navigate}/>}
           {page==='sal'&&<PageSAL/>}
           {page==='listaExtra'&&<PageListaExtra onNav={navigate} openModal={openModal}/>}
           {page==='regoleEcon'&&<PageRegoleEcon selected={selExtra}/>}
