@@ -912,7 +912,7 @@ const PageDashboard = ({onNav,openModal})=>{
   const [acFilter,setAcFilter]=useState('');
   const [acTipo,setAcTipo]=useState('');
   const [acCli,setAcCli]=useState('');
-  const [acSort,setAcSort]=useState('compilate'); // compilate | sal | importo | codice
+  const [acSort,setAcSort]=useState('recenti'); // recenti | compilate | sal | importo | codice
 
   const AlertItem = ({text,color,commessa})=>(
     <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${T.border}`}}>
@@ -1077,6 +1077,7 @@ const PageDashboard = ({onNav,openModal})=>{
               {[...new Set(D.commesse.filter(c=>c.stato==='Attiva').map(c=>c.cliente))].filter(Boolean).sort().map(cl=><option key={cl} value={cl}>{cl.length>30?cl.slice(0,28)+'…':cl}</option>)}
             </select>
             <select value={acSort} onChange={e=>setAcSort(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:12,background:'#fff',marginLeft:'auto'}}>
+              <option value="recenti">🆕 Più recenti (in cima nuove)</option>
               <option value="compilate">📋 Compilate prima</option>
               <option value="sal">↓ SAL %</option>
               <option value="importo">↓ Importo</option>
@@ -1097,7 +1098,10 @@ const PageDashboard = ({onNav,openModal})=>{
               return true;
             });
             // Ordina
-            if(acSort==='compilate') {
+            if(acSort==='recenti') {
+              // Più recenti in cima: usa updatedAt (che è già fallback su created_at in loadFromSupabase)
+              arr = arr.sort((a,b) => (b.updatedAt||b.dataInizio||'').localeCompare(a.updatedAt||a.dataInizio||''));
+            } else if(acSort==='compilate') {
               // Prima quelle con importo > 0 (compilate), poi quelle senza importo
               arr = arr.sort((a,b)=>{
                 const aFatto = (a.importoContrattuale||0)>0;
@@ -4908,6 +4912,18 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
             if(!nome.trim()) errors.push('Nome / Descrizione mancante');
             if(!dataInizio) errors.push('Data inizio mancante');
             if(tipo==='Extra' && !madreId) errors.push('Commessa madre mancante (richiesta per tipo Extra)');
+            // 🚫 DUPLICATI — codice o nrOrdine già usato
+            const norm = (s)=>String(s||'').toUpperCase().replace(/\s+/g,'');
+            const codiceNorm = norm(codice);
+            const nrOrdineNorm = norm(nrOrdine);
+            if(codiceNorm) {
+              const dupCodice = D.commesse.find(c => norm(c.codice)===codiceNorm);
+              if(dupCodice) errors.push(`Codice "${codice}" già usato dalla commessa ${dupCodice.codice} (${dupCodice.cliente}). Scegli un codice diverso o elimina prima quella esistente.`);
+            }
+            if(nrOrdineNorm) {
+              const dupOrd = D.commesse.find(c => norm(c.nrOrdine)===nrOrdineNorm);
+              if(dupOrd) errors.push(`N° Ordine "${nrOrdine}" già usato dalla commessa ${dupOrd.codice} (${dupOrd.cliente}). Un ordine cliente non può essere su due commesse.`);
+            }
             // WARNING (skippabili con flag esplicito)
             if(impN<=0 && !skipImporto) warnings.push({key:'importo',msg:'Importo contrattuale = 0',hint:'Senza importo non si può calcolare SAL%, garanzia % o residuo da fatturare. Inserisci l\'importo o spunta "non disponibile".'});
             if(tipo==='Commessa' && !nrOrdine.trim() && !skipNrOrdine) warnings.push({key:'nrOrdine',msg:'N° Ordine cliente mancante',hint:'Senza N° ordine il sistema non riesce a separare automaticamente fatture SAL dalle Extra (un\'unica commessa può avere più ordini). Aggiungi il numero o spunta "non disponibile".'});
