@@ -423,8 +423,8 @@ async function loadFromSupabase() {
     scadenza: f.scadenza||null,
     cliente: f.cliente, tipo: 'Fattura',
     oggetto: f.oggetto||f.oggetto_visibile||'',
-    imponibile: f.imponibile||0, iva: f.iva||0,
-    lordo: f.lordo||0, garanzia: 0, netto: f.lordo||0,
+    imponibile: parseFloat(f.imponibile)||0, iva: parseFloat(f.iva)||0,
+    lordo: parseFloat(f.lordo)||0, garanzia: 0, netto: parseFloat(f.lordo)||0,
     stato: f.stato||'Aperta', note: f.note||'',
     commessa: null, commessaCodice: null, sal: null,
     tipoRif: f.tipo_rif||null, // override manuale Acconto/SAL/Saldo/Garanzia
@@ -438,10 +438,10 @@ async function loadFromSupabase() {
     scadenza: f.scadenza||null,
     fornitore: f.fornitore, tipo: 'Fattura',
     oggetto: f.oggetto||f.oggetto_visibile||'',
-    imponibile: f.imponibile||0, iva: f.iva||0,
-    lordo: f.lordo||0, garanzia: 0,
+    imponibile: parseFloat(f.imponibile)||0, iva: parseFloat(f.iva)||0,
+    lordo: parseFloat(f.lordo)||0, garanzia: 0,
     compGen: 0, compSub: 0,
-    netto: f.lordo||0,
+    netto: parseFloat(f.lordo)||0,
     stato: f.stato||'Aperta', note: f.note||'',
     tipoRif: f.tipo_rif||null,
     tipoRifOverride: f.tipo_rif||null,
@@ -463,14 +463,14 @@ async function loadFromSupabase() {
     id: c.id, codice: c.codice, nome: c.nome, cliente: c.cliente,
     nrOrdine: c.nr_ordine||c.nrOrdine||null,
     tipoLavoro: c.tipo_lavoro||c.tipoLavoro||'Commessa',
-    importoContrattuale: c.importo_contrattuale||c.importoContrattuale||0,
+    importoContrattuale: parseFloat(c.importo_contrattuale||c.importoContrattuale)||0,
     stato: c.stato||'Attiva',
     dataInizio: c.data_inizio||c.dataInizio,
     dataFine: c.data_fine||c.dataFine,
     fattMode: c.fatt_mode||c.fattMode||'SAL',
     pagMode: c.pag_mode||c.pagMode||'Bonifico',
-    salProdAttivoTot: c.sal_prod_attivo_tot||0,
-    fatturato: c.fatturato||0, incassato: c.incassato||0, pagato: c.pagato||0,
+    salProdAttivoTot: parseFloat(c.sal_prod_attivo_tot)||0,
+    fatturato: parseFloat(c.fatturato)||0, incassato: parseFloat(c.incassato)||0, pagato: parseFloat(c.pagato)||0,
     madreId: c.madre_id||null, autonomo: c.autonomo||null,
     acconto: c.acconto||null, garanzia: c.garanzia||null,
     compEnabled: c.comp_enabled||false,
@@ -3134,10 +3134,10 @@ const calcBarreCommessa = (c)=>{
   // Fatturato grafico = SAL produttivo + acconto residuo grafico
   // Garanzia: trattenuta sul pagamento, NON entra nelle barre.
   // ─────────────────────────────────────────────────────────────────
-  const contr      = c.importoContrattuale || 1;
+  const contr      = Number(c.importoContrattuale) || 1;
   // SAL produttivo dinamico: se c.salProdAttivoTot non popolato, calcolalo dalle fatture
   // (acconto + SAL fatturati, escludendo extra/saldo/garanzia/altri ordini)
-  let salAbs = c.salProdAttivoTot || 0;
+  let salAbs = Number(c.salProdAttivoTot) || 0;
   if(salAbs===0 && Array.isArray(D.fattureAttive)) {
     const isExtra = (f)=> /\bextra\b|\bbap\b/i.test(f.oggetto||'');
     const isSaldo = (f)=> f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
