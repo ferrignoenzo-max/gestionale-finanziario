@@ -1787,6 +1787,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
 const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
   const [tab,setTab]=useState('pagamenti');
   const [editOpen,setEditOpen]=useState(false);
+  const [expanded,setExpanded]=useState(null); // 'sal' | 'extra' | null
   if(!commessa) return <div style={{padding:24}}><Card><div style={{color:T.textL,textAlign:'center',padding:40}}>Nessuna commessa selezionata. <span style={{color:T.blue,cursor:'pointer'}} onClick={()=>onNav('watchlist')}>Vai alla watchlist →</span></div></Card></div>;
   const c=commessa;
   const daInc=D.fattureAttive.filter(f=>f.commessa===c.id&&f.stato!=='Scaduta').reduce((a,f)=>a+f.netto,0);
@@ -1822,6 +1823,22 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
     ? c.salProdAttivoTot
     : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f)).reduce((a,f)=>a+_impOf(f),0);
   const salProdPct=c.importoContrattuale>0?Math.round((salProdAttivoTotDyn/c.importoContrattuale)*100):0;
+  // Extra (fuori contratto base) = fatture EXTRA/BAP O ordini diversi dal principale
+  const fattureExtraDyn = D.fattureAttive.filter(f=>f.commessa===c.id && (_isExtra(f) || !_isMainOrder(f)));
+  const totExtraDyn = fattureExtraDyn.reduce((a,f)=>a+_impOf(f),0);
+  // Fatture SAL del contratto base (per la tendina avanzamento)
+  const fattureSALDyn = D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f))
+    .sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  // Raggruppamento extra per nrOrdine
+  const extraByOrdine = (() => {
+    const m = new Map();
+    fattureExtraDyn.forEach(f=>{
+      const ord = _estraiOrdine(f.oggetto) || '(senza nr ordine)';
+      if(!m.has(ord)) m.set(ord, {ordine:ord, fatture:[], totale:0});
+      const r = m.get(ord); r.fatture.push(f); r.totale += _impOf(f);
+    });
+    return Array.from(m.values()).sort((a,b)=>b.totale-a.totale);
+  })();
   const tabs=['pagamenti','sal','fatture','extra','compensazioni','regole'];
 
   return (
@@ -1837,11 +1854,17 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
 
       {/* Header KPIs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:14}}>
-        {/* SAL % + Fatturato KPI card */}
-        <div style={{background:T.white,borderRadius:10,boxShadow:T.sh,padding:16,borderLeft:`4px solid #2563eb`,gridColumn:'span 2'}}>
-          <div style={{fontSize:10,fontWeight:700,color:T.textL,textTransform:'uppercase',letterSpacing:.5,marginBottom:8}}>AVANZAMENTO: SAL PRODUTTIVO & FATTURATO</div>
+        {/* SAL % + Fatturato KPI card – cliccabile per espandere */}
+        <div onClick={()=>setExpanded(expanded==='sal'?null:'sal')} style={{background:T.white,borderRadius:10,boxShadow:T.sh,padding:16,borderLeft:`4px solid #2563eb`,gridColumn:'span 2',cursor:'pointer',transition:'box-shadow .2s'}}
+          onMouseEnter={e=>e.currentTarget.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'}
+          onMouseLeave={e=>e.currentTarget.style.boxShadow=T.sh}>
+          <div style={{fontSize:10,fontWeight:700,color:T.textL,textTransform:'uppercase',letterSpacing:.5,marginBottom:8,display:'flex',justifyContent:'space-between'}}>
+            <span>AVANZAMENTO: SAL PRODUTTIVO & FATTURATO</span>
+            <span style={{color:T.blue}}>{expanded==='sal'?'▼':'▶'} clic per dettagli</span>
+          </div>
           <div style={{display:'flex',gap:24,alignItems:'center',marginBottom:8}}>
-            <div><span style={{fontSize:28,fontWeight:800,color:'#2563eb'}}>{salProdPct}%</span><span style={{fontSize:11,color:T.textL,marginLeft:4}}>SAL produttivo</span></div>
+            <div><span style={{fontSize:28,fontWeight:800,color:'#2563eb'}}>{salProdPct}%</span><span style={{fontSize:11,color:T.textL,marginLeft:4}}>SAL produttivo · {fmt(salProdAttivoTotDyn)}</span></div>
+            {totExtraDyn>0&&<div style={{fontSize:11,fontWeight:600,color:T.purple,background:T.purpleL,padding:'3px 10px',borderRadius:20}}>+ Extra: {fmt(totExtraDyn)}</div>}
             {c.acconto?.residuo>0&&<div style={{fontSize:11,fontWeight:600,color:'#f59e0b',background:'#fffbeb',padding:'3px 10px',borderRadius:20}}>Acc. residuo: {fmt(c.acconto.residuo)}</div>}
           </div>
           <DualProgressBar c={c} showLabels={false} height={10}/>
@@ -1854,10 +1877,106 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:20}}>
         <KPICard label="Acconto residuo" value={c.acconto?fmt(c.acconto.residuo):'—'} sub={c.acconto?`Recuperato: ${fmt(c.acconto.recuperato)} · ${c.acconto.nota||''}`:c.tipoLavoro==='Ordine'?'Ordine – nessun acconto':'Nessun acconto'} color={T.purple} />
         <KPICard label="Fatture scadute" value={scadute.length} color={scadute.length>0?T.red:T.green} alert={scadute.length>0} onClick={()=>openModal('scadute')} />
-        {c.tipoLavoro==='Commessa'&&<KPICard label="Extra collegati" value={extraC.length} sub={`${extraC.filter(e=>e.stato==='Incompleto'||e.stato==='Critico').length} da configurare`} color={T.blue} onClick={()=>setTab('extra')} />}
+        {c.tipoLavoro==='Commessa'&&<KPICard label="Fatturato Extra" value={fmt(totExtraDyn)} sub={`${fattureExtraDyn.length} fatt. · ${extraByOrdine.length} ordini distinti · clic per dettaglio`} color={T.purple} onClick={()=>setExpanded(expanded==='extra'?null:'extra')} />}
         {c.tipoLavoro==='Ordine'&&<KPICard label="Tipo" value="Ordine" sub="Lavoro piccolo – senza Extra" color={T.green} />}
         <KPICard label="Criticità" value={(c.criticita||[]).length} color={(c.criticita||[]).length>0?T.red:T.green} alert={(c.criticita||[]).length>0} onClick={()=>openModal('criticita',c)} />
       </div>
+
+      {/* TENDINA AVANZAMENTO – timeline SAL mensili */}
+      {expanded==='sal' && (
+        <Card style={{marginBottom:18,padding:0,borderTop:`3px solid ${T.blue}`}}>
+          <div style={{padding:'12px 16px',background:T.blueL,borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div style={{fontWeight:700,fontSize:13,color:T.blue}}>📊 Timeline SAL e Acconto – {fattureSALDyn.length} fatture · totale {fmt(salProdAttivoTotDyn)} ({salProdPct}%)</div>
+            <button onClick={()=>setExpanded(null)} style={{background:'none',border:'none',color:T.textL,cursor:'pointer',fontSize:14}}>✕</button>
+          </div>
+          {fattureSALDyn.length===0 ? (
+            <div style={{padding:24,textAlign:'center',color:T.textL}}>Nessuna fattura SAL trovata.</div>
+          ) : (() => {
+            let cum = 0;
+            return (
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead>
+                  <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Num</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Data</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Scadenza</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Tipo</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>Imponibile</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>% Contr.</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>% Cum.</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Stato</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fattureSALDyn.map(f=>{
+                    const imp = _impOf(f);
+                    const pct = c.importoContrattuale>0 ? (imp/c.importoContrattuale*100) : 0;
+                    cum += pct;
+                    const tipoLabel = f.tipoRifOverride==='Acconto' || /acconto/i.test(f.oggetto||'') ? '💰 Acconto' : '📊 SAL';
+                    return (
+                      <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                        <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                        <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
+                        <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
+                        <td style={{padding:'6px 12px',fontSize:11}}>{tipoLabel}</td>
+                        <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700}}>{fmt(imp)}</td>
+                        <td style={{padding:'6px 12px',textAlign:'right',color:T.blue,fontWeight:600}}>{pct.toFixed(2)}%</td>
+                        <td style={{padding:'6px 12px',textAlign:'right',color:T.green,fontWeight:700}}>{cum.toFixed(2)}%</td>
+                        <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            );
+          })()}
+        </Card>
+      )}
+
+      {/* TENDINA EXTRA – ordini distinti raggruppati */}
+      {expanded==='extra' && (
+        <Card style={{marginBottom:18,padding:0,borderTop:`3px solid ${T.purple}`}}>
+          <div style={{padding:'12px 16px',background:T.purpleL,borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div style={{fontWeight:700,fontSize:13,color:T.purple}}>🟣 Extra fatturati – {extraByOrdine.length} ordini · totale {fmt(totExtraDyn)}</div>
+            <button onClick={()=>setExpanded(null)} style={{background:'none',border:'none',color:T.textL,cursor:'pointer',fontSize:14}}>✕</button>
+          </div>
+          {extraByOrdine.length===0 ? (
+            <div style={{padding:24,textAlign:'center',color:T.textL}}>Nessun extra fatturato.</div>
+          ) : extraByOrdine.map(grp=>(
+            <div key={grp.ordine} style={{borderTop:`1px solid ${T.border}`}}>
+              <div style={{padding:'10px 16px',background:'#fafbfc',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <span style={{fontFamily:'monospace',fontWeight:700,color:T.text}}>{grp.ordine}</span>
+                  <span style={{marginLeft:10,fontSize:11,color:T.textL}}>{grp.fatture.length} {grp.fatture.length===1?'fattura':'fatture'}</span>
+                </div>
+                <div style={{fontWeight:800,color:T.purple}}>{fmt(grp.totale)}</div>
+              </div>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead>
+                  <tr style={{background:'#fff',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                    <th style={{padding:'6px 16px',textAlign:'left'}}>Num</th>
+                    <th style={{padding:'6px 12px',textAlign:'left'}}>Data</th>
+                    <th style={{padding:'6px 12px',textAlign:'right'}}>Imponibile</th>
+                    <th style={{padding:'6px 12px',textAlign:'left'}}>Stato</th>
+                    <th style={{padding:'6px 12px',textAlign:'left'}}>Oggetto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grp.fatture.sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(f=>(
+                    <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                      <td style={{padding:'5px 16px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                      <td style={{padding:'5px 12px'}}>{fmtDate(f.data)}</td>
+                      <td style={{padding:'5px 12px',textAlign:'right',fontWeight:600}}>{fmt(_impOf(f))}</td>
+                      <td style={{padding:'5px 12px'}}><Badge text={f.stato}/></td>
+                      <td style={{padding:'5px 12px',color:T.textL,fontSize:11,maxWidth:300,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.oggetto}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </Card>
+      )}
 
       {/* SAL + Fatturato progress – logica corretta */}
       <Card style={{marginBottom:18}}>
@@ -1913,10 +2032,27 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
         </div>
       </Card>
 
-      {/* Criticità */}
+      {/* Criticità manuali */}
       {(c.criticita||[]).length>0&&(
         <div style={{background:T.redL,border:`1px solid #fca5a5`,borderRadius:8,padding:12,marginBottom:18}}>
           {(c.criticita||[]).map((cr,i)=><div key={i} style={{fontSize:13,color:T.red,display:'flex',gap:6,marginBottom:i<(c.criticita||[]).length-1?4:0}}><span>⚠</span>{cr}</div>)}
+        </div>
+      )}
+
+      {/* Alert SAL elevato senza consegna */}
+      {c.importoContrattuale>0 && salProdPct>=90 && (
+        <div style={{background:salProdPct>=100?T.redL:'#fffbeb',border:`1px solid ${salProdPct>=100?'#fca5a5':'#fde68a'}`,borderRadius:8,padding:'12px 16px',marginBottom:18,display:'flex',gap:10,alignItems:'flex-start'}}>
+          <span style={{fontSize:18}}>⚠</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:13,color:salProdPct>=100?T.red:'#92400e',marginBottom:3}}>
+              {salProdPct>=100 ? 'Hai fatturato oltre il 100% del contratto' : `Hai fatturato il ${salProdPct}% del contratto base`}
+            </div>
+            <div style={{fontSize:12,color:T.text}}>
+              Fatturato SAL <b>{fmt(salProdAttivoTotDyn)}</b> su <b>{fmt(c.importoContrattuale)}</b>.
+              {salProdPct>=100 ? ' Verifica con il Committente: extra contrattuali da gestire come ordini Extra separati.' :
+               ` Restano ${fmt(c.importoContrattuale-salProdAttivoTotDyn)} prima di passare al saldo (3%) e garanzia (3%). Conferma consegna o emetti fattura saldo.`}
+            </div>
+          </div>
         </div>
       )}
 
