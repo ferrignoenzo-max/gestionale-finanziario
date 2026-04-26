@@ -4026,6 +4026,7 @@ const PageModalitaPagamento = ({addMP, updateMP, deleteMP})=>{
 };
 
 const PageNuovaCommessa = ({onNav, addCommessa, addTemplate, deleteTemplate})=>{
+  const [step,setStep]=useState(1);
   const [tipo,setTipo]=useState('Commessa');
   const [nuovaCreata,setNuovaCreata]=useState(null);
 
