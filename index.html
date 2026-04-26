@@ -475,6 +475,7 @@ async function loadFromSupabase() {
     acconto: c.acconto||null, garanzia: c.garanzia||null,
     compEnabled: c.comp_enabled||false,
     regolePagamento: c.regole_pagamento||null,
+    updatedAt: c.updated_at||c.created_at||null,
     contratto: null, criticita: c.criticita||[],
   }));
   // LINK DINAMICO: collega ogni fattura alla commessa giusta via oggetto
@@ -1280,15 +1281,16 @@ const PageDashboard = ({onNav,openModal})=>{
 const PageWatchlist = ({onNav,openModal})=>{
   const [filter,setFilter]    = useState('');
   const [filtroTipo,setFiltroTipo]   = useState('');   // '' | 'Commessa' | 'Ordine' | 'Extra'
-  const [filtroStato,setFiltroStato] = useState('');   // '' | 'Attiva' | 'Completata' | 'Sospesa'
+  const [filtroStato,setFiltroStato] = useState('Attiva');   // default Attiva (lavori in corso)
   const [filtroCliente,setFiltroCliente] = useState('');
+  const [ordine,setOrdine] = useState('recenti');  // 'recenti' | 'codice' | 'importo' | 'cliente'
 
   // Lista clienti unici per il dropdown
   const clientiUnici = [...new Set(D.commesse.map(c=>c.cliente))].sort();
 
   // Filtro composito - cerca tollerante a spazi/case (es. "bx 107" = "BX107")
   const normSearch = (s)=> String(s||'').toLowerCase().replace(/\s+/g,'');
-  const commesse = D.commesse.filter(c=>{
+  let commesse = D.commesse.filter(c=>{
     const txt = normSearch(filter);
     if(txt) {
       const haystack = normSearch((c.codice||'') + (c.nome||'') + (c.cliente||'') + (c.nrOrdine||''));
@@ -1298,6 +1300,14 @@ const PageWatchlist = ({onNav,openModal})=>{
     if(filtroStato&&c.stato!==filtroStato) return false;
     if(filtroCliente&&c.cliente!==filtroCliente) return false;
     return true;
+  });
+  // Ordinamento
+  commesse = [...commesse].sort((a,b)=>{
+    if(ordine==='recenti')  return (b.updatedAt||b.dataInizio||'').localeCompare(a.updatedAt||a.dataInizio||'');
+    if(ordine==='codice')   return (a.codice||'').localeCompare(b.codice||'');
+    if(ordine==='importo')  return (b.importoContrattuale||0) - (a.importoContrattuale||0);
+    if(ordine==='cliente')  return (a.cliente||'').localeCompare(b.cliente||'');
+    return 0;
   });
 
   const saldoCommesse  = D.commesse.reduce((a,c)=>a+(c.incassato-c.pagato),0);
@@ -1358,6 +1368,12 @@ const PageWatchlist = ({onNav,openModal})=>{
             <select value={filtroCliente} onChange={e=>setFiltroCliente(e.target.value)} style={selStyle}>
               <option value="">Tutti i clienti</option>
               {clientiUnici.map(cl=><option key={cl} value={cl}>{cl}</option>)}
+            </select>
+            <select value={ordine} onChange={e=>setOrdine(e.target.value)} style={{...selStyle,marginLeft:'auto'}} title="Ordinamento">
+              <option value="recenti">↓ Più recenti / lavori in corso</option>
+              <option value="codice">A-Z Codice</option>
+              <option value="importo">↓ Importo</option>
+              <option value="cliente">A-Z Cliente</option>
             </select>
             {hasFiltri&&<Btn variant='ghost' size='sm' onClick={resetFiltri}>✕ Azzera filtri</Btn>}
           </div>
@@ -1939,11 +1955,19 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
 
         // Match euristico: associa fatture a milestone in base al tipoRif/oggetto
         const fattureMS = (m) => {
-          if(m.tipo==='acconto')  return fattAttive.filter(f=>f.tipoRif==='Acconto'||/acconto|acc[\b\.]/i.test(f.oggetto||''));
-          if(m.tipo==='sal')      return fattAttive.filter(f=>f.tipoRif==='SAL'||(f.tipoRif!=='Acconto'&&!/saldo|garanzia|extra/i.test(f.oggetto||'')));
-          if(m.tipo==='saldo')    return fattAttive.filter(f=>/saldo|fine\s*lavori/i.test(f.oggetto||''));
-          if(m.tipo==='garanzia') return fattAttive.filter(f=>/garanzia|svincolo/i.test(f.oggetto||''));
+          // Niente Extra/BAP nelle milestone del contratto base — vanno gestite come commesse separate
+          const noExtra = (f) => !/\bextra\b|\bbap\b/i.test(f.oggetto||'');
+          if(m.tipo==='acconto')  return fattAttive.filter(f=> noExtra(f) && (f.tipoRif==='Acconto'||/acconto|\bacc\b\.?/i.test(f.oggetto||'')));
+          if(m.tipo==='sal')      return fattAttive.filter(f=> noExtra(f) && (f.tipoRifOverride==='SAL' || (f.tipoRif!=='Acconto' && f.tipoRif!=='Saldo' && f.tipoRif!=='Garanzia' && !/saldo|garanzia/i.test(f.oggetto||''))) && f.tipoRif!=='Acconto');
+          if(m.tipo==='saldo')    return fattAttive.filter(f=> noExtra(f) && (f.tipoRifOverride==='Saldo'||/saldo|fine\s*lavori/i.test(f.oggetto||'')));
+          if(m.tipo==='garanzia') return fattAttive.filter(f=> noExtra(f) && (f.tipoRifOverride==='Garanzia'||/garanzia|svincolo/i.test(f.oggetto||'')));
           return [];
+        };
+        // Helper: estrae numero ordine principale dall'oggetto
+        const estraiOrdine = (oggetto)=>{
+          if(!oggetto) return '';
+          const m = String(oggetto).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i);
+          return m ? m[0] : '';
         };
         const lookupMP = (id) => (D.modalitaPagamento||[]).find(mp=>mp.id===id);
         const tipoIcon = {acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
@@ -2142,29 +2166,32 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                             <th style={{padding:'6px 12px',textAlign:'left'}}>Num</th>
                             <th style={{padding:'6px 12px',textAlign:'left'}}>Data</th>
                             <th style={{padding:'6px 12px',textAlign:'left'}}>Scadenza</th>
+                            <th style={{padding:'6px 12px',textAlign:'left'}} title="Numero ordine cliente estratto da oggetto">N° Ordine</th>
                             <th style={{padding:'6px 12px',textAlign:'right'}} title="Importo prestazione (esclude IVA/bollo) – conta per i calcoli SAL">Imponibile</th>
                             <th style={{padding:'6px 12px',textAlign:'right'}} title="% di questa fattura sul contratto totale">% Contr.</th>
                             <th style={{padding:'6px 12px',textAlign:'right'}} title="Avanzamento cumulativo % sul contratto">% Cum.</th>
                             <th style={{padding:'6px 12px',textAlign:'left'}}>Stato</th>
-                            <th style={{padding:'6px 12px',textAlign:'left'}}>Oggetto</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {rows.map(({f,imp,pctContratto,pctCum})=>(
-                            <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
-                              <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
-                              <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
-                              <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
-                              <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700,color:T.text}}>{fmt(imp)}</td>
-                              <td style={{padding:'6px 12px',textAlign:'right',color:T.blue,fontWeight:600}}>{pctContratto.toFixed(2)}%</td>
-                              <td style={{padding:'6px 12px',textAlign:'right',color:T.green,fontWeight:700}}>{pctCum.toFixed(2)}%</td>
-                              <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
-                              <td style={{padding:'6px 12px',color:T.textL,fontSize:11,maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.oggetto}</td>
-                            </tr>
-                          ))}
+                          {rows.map(({f,imp,pctContratto,pctCum})=>{
+                            const nrOrd = estraiOrdine(f.oggetto);
+                            return (
+                              <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                                <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                                <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
+                                <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
+                                <td style={{padding:'6px 12px',fontFamily:'monospace',fontSize:11}} title={f.oggetto}>{nrOrd || <span style={{color:T.textL,fontStyle:'italic'}}>—</span>}</td>
+                                <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700,color:T.text}}>{fmt(imp)}</td>
+                                <td style={{padding:'6px 12px',textAlign:'right',color:T.blue,fontWeight:600}}>{pctContratto.toFixed(2)}%</td>
+                                <td style={{padding:'6px 12px',textAlign:'right',color:T.green,fontWeight:700}}>{pctCum.toFixed(2)}%</td>
+                                <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
+                              </tr>
+                            );
+                          })}
                           {/* Riga totale */}
                           <tr style={{borderTop:`2px solid ${T.border}`,background:'#f8fafc'}}>
-                            <td colSpan={3} style={{padding:'8px 12px',fontWeight:700,color:T.textL,fontSize:11,textTransform:'uppercase'}}>
+                            <td colSpan={4} style={{padding:'8px 12px',fontWeight:700,color:T.textL,fontSize:11,textTransform:'uppercase'}}>
                               Totale fatturato ({rows.length} fatture)
                             </td>
                             <td style={{padding:'8px 12px',textAlign:'right',fontWeight:800,color:T.text,fontSize:13}}>{fmt(rows.reduce((a,r)=>a+r.imp,0))}</td>
@@ -2172,7 +2199,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                               {cum.toFixed(2)}% del contratto
                               {m.tipo==='sal' && <span style={{marginLeft:8,color:T.textL,fontWeight:400,fontSize:11}}>(milestone target: {m.perc}%)</span>}
                             </td>
-                            <td colSpan={2}/>
+                            <td/>
                           </tr>
                         </tbody>
                       </table>
