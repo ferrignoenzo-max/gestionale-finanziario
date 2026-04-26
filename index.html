@@ -3963,7 +3963,8 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
   const [fattMode,setFattMode]=useState('SAL mensile');
   const [compEnabled,setCompEnabled]=useState(false);
   const [autonomo,setAutonomo]=useState(false);
-  const [contrattoFile,setContrattoFile]=useState(null); // {name, url, size}
+  const [contrattoFile,setContrattoFile]=useState(null); // {name, url, size, base64}
+  const [aiBusy,setAiBusy]=useState(false);
 
   // Calcoli live
   const impN = parseFloat(importo)||0;
@@ -4053,11 +4054,119 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
           <div style={{marginTop:12,border:`1px dashed ${T.border}`,borderRadius:8,padding:14,background:'#fafafa'}}>
             <div style={{fontSize:12,fontWeight:700,color:T.textL,marginBottom:8}}>📎 Contratto / Allegato (opzionale)</div>
             {contrattoFile?(
-              <div style={{display:'flex',alignItems:'center',gap:12}}>
-                <span style={{background:T.blueL,color:T.blue,padding:'4px 10px',borderRadius:6,fontSize:12,fontWeight:600}}>📄 {contrattoFile.name}</span>
-                <span style={{fontSize:11,color:T.textL}}>{(contrattoFile.size/1024).toFixed(0)} KB</span>
-                <button type="button" onClick={()=>{if(contrattoFile.url) window.open(contrattoFile.url,'_blank');}} style={{border:'none',background:T.blue,color:'#fff',padding:'3px 10px',borderRadius:5,fontSize:11,cursor:'pointer'}}>👁 Visualizza</button>
-                <button type="button" onClick={()=>setContrattoFile(null)} style={{border:'none',background:'#f1f5f9',color:T.red,padding:'3px 10px',borderRadius:5,fontSize:11,cursor:'pointer'}}>✕ Rimuovi</button>
+              <div>
+                <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:10}}>
+                  <span style={{background:T.blueL,color:T.blue,padding:'4px 10px',borderRadius:6,fontSize:12,fontWeight:600}}>📄 {contrattoFile.name}</span>
+                  <span style={{fontSize:11,color:T.textL}}>{(contrattoFile.size/1024).toFixed(0)} KB</span>
+                  <button type="button" onClick={()=>{if(contrattoFile.url) window.open(contrattoFile.url,'_blank');}} style={{border:'none',background:T.blue,color:'#fff',padding:'3px 10px',borderRadius:5,fontSize:11,cursor:'pointer'}}>👁 Visualizza</button>
+                  <button type="button" onClick={()=>setContrattoFile(null)} style={{border:'none',background:'#f1f5f9',color:T.red,padding:'3px 10px',borderRadius:5,fontSize:11,cursor:'pointer'}}>✕ Rimuovi</button>
+                </div>
+                {contrattoFile.base64 && (
+                  <button type="button" disabled={aiBusy} onClick={async ()=>{
+                    const apiKey = localStorage.getItem('gemini_key');
+                    if(!apiKey) return alert('⚠ Imposta prima la API key Gemini.\nApri il pannello "🤖 Chiedi all\'AI" in alto a destra → ⚙ Impostazioni → incolla la chiave.');
+                    setAiBusy(true);
+                    const tipi=['acconto','sal','saldo','garanzia','fideiussione','altro'];
+                    const trig=['inizio_lavori','sal_mensile','fine_lavori','x_mesi_dopo_fine','avanzamento_perc','altro'];
+                    const prompt=`Sei un assistente che estrae dati da contratti/ordini italiani del settore navale (Azimut Benetti, Sanlorenzo, TISG).
+
+Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, niente backtick) con questa struttura:
+
+{
+  "codice_commessa": "es. BX107 o C602 o SLA044/167 (se non chiaro: null)",
+  "nr_ordine": "es. MYOA22019935/APP",
+  "cliente": "ragione sociale completa",
+  "nome": "descrizione breve lavori",
+  "tipo_lavoro": uno tra ["Commessa","Ordine","Extra"],
+  "importo_totale": numero in euro senza separatori (es. 770000),
+  "data_ordine": "YYYY-MM-DD",
+  "data_consegna": "YYYY-MM-DD se presente",
+  "modalita_fatturazione": uno tra ["SAL mensile","SAL bimestrale","Milestone","Soluzione unica","Libera"],
+  "termini_pagamento_default": "es. '30gg FM' o '60gg FM' (per il primo step prima delle milestone)",
+  "milestone": [
+    {
+      "titolo": "es. Acconto inizio lavori",
+      "tipo": uno tra ${JSON.stringify(tipi)},
+      "perc": numero 0-100,
+      "trigger": uno tra ${JSON.stringify(trig)},
+      "triggerExtra": "stringa numerica solo se trigger=x_mesi_dopo_fine o avanzamento_perc",
+      "modalita_pagamento_label": "es. RI.BA. 60gg DFFM +10gg",
+      "condizioni": "condizioni testuali",
+      "fideiussione_alt_perc": numero o null,
+      "fideiussione_alt_mesi": numero o null
+    }
+  ]
+}`;
+                    const model = localStorage.getItem('gemini_model')||'gemini-2.5-flash';
+                    try {
+                      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,{
+                        method:'POST',headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:contrattoFile.type||'application/pdf',data:contrattoFile.base64}}]}]})
+                      });
+                      const data = await r.json();
+                      if(!r.ok) throw new Error(data?.error?.message||'API error');
+                      let txt = data?.candidates?.[0]?.content?.parts?.[0]?.text||'';
+                      txt = txt.replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+                      const ext = JSON.parse(txt);
+                      const summary = [
+                        ext.codice_commessa?`Codice: ${ext.codice_commessa}`:null,
+                        ext.nr_ordine?`N° Ordine: ${ext.nr_ordine}`:null,
+                        ext.cliente?`Cliente: ${ext.cliente}`:null,
+                        ext.tipo_lavoro?`Tipo: ${ext.tipo_lavoro}`:null,
+                        ext.importo_totale?`Importo: ${ext.importo_totale.toLocaleString('it-IT')} €`:null,
+                        ext.data_ordine?`Data inizio: ${ext.data_ordine}`:null,
+                        ext.data_consegna?`Data fine: ${ext.data_consegna}`:null,
+                        ext.milestone?.length?`Milestone: ${ext.milestone.length} (${ext.milestone.map(m=>m.perc+'%').join('+')})`:null,
+                      ].filter(Boolean).join('\n');
+                      if(!window.confirm(`L'AI ha estratto dal contratto:\n\n${summary}\n\nApplicare al form? (i campi compilati verranno sovrascritti)`)) {
+                        setAiBusy(false); return;
+                      }
+                      if(ext.codice_commessa) setCodice(ext.codice_commessa);
+                      if(ext.nr_ordine) setNrOrdine(ext.nr_ordine);
+                      if(ext.cliente) setCliente(ext.cliente);
+                      if(ext.nome) setNome(ext.nome);
+                      if(ext.tipo_lavoro && ['Commessa','Ordine','Extra'].includes(ext.tipo_lavoro)) setTipo(ext.tipo_lavoro);
+                      if(ext.importo_totale) setImporto(String(ext.importo_totale));
+                      if(ext.data_ordine) setDataInizio(ext.data_ordine);
+                      if(ext.data_consegna) setDataFine(ext.data_consegna);
+                      if(ext.modalita_fatturazione) setFattMode(ext.modalita_fatturazione);
+                      if(ext.termini_pagamento_default) setPagMode(ext.termini_pagamento_default);
+                      if(Array.isArray(ext.milestone) && ext.milestone.length>0) {
+                        // milestone ai → memorizzo come window globale, lo step 2 le caricherà
+                        const mps = D.modalitaPagamento||[];
+                        const findMP = (label) => {
+                          if(!label) return '';
+                          const norm = String(label).toLowerCase().replace(/\s+/g,'');
+                          const m = mps.find(mp=>mp.nome.toLowerCase().replace(/\s+/g,'')===norm)
+                                || mps.find(mp=>norm.includes(mp.nome.toLowerCase().replace(/\s+/g,'').slice(0,8)));
+                          return m?.id||'';
+                        };
+                        const aiMs = ext.milestone.map((m,idx)=>({
+                          id:`ms-ai-${Date.now()}-${idx}`,
+                          titolo:m.titolo||'',
+                          tipo: tipi.includes(m.tipo)?m.tipo:'altro',
+                          perc:m.perc||0,
+                          trigger: trig.includes(m.trigger)?m.trigger:'altro',
+                          triggerExtra:m.triggerExtra?String(m.triggerExtra):'',
+                          modalitaPagamentoId: findMP(m.modalita_pagamento_label),
+                          condizioni:m.condizioni||'',
+                          fideiussioneAlt:{attiva:!!m.fideiussione_alt_perc,perc:m.fideiussione_alt_perc||5,mesi:m.fideiussione_alt_mesi||12},
+                        }));
+                        // Salvo in window per pickup nello step 2 / dopo creazione
+                        window._aiMilestonePending = aiMs;
+                        alert(`✓ Form pre-compilato.\n\n${aiMs.length} milestone identificate – verranno applicate al passo 2 (Regole).\n\nVerifica i dati base e clicca "Avanti → Regole" per continuare.`);
+                      } else {
+                        alert('✓ Form pre-compilato.\nNessuna milestone trovata: imposta manualmente al passo 2 (Regole).');
+                      }
+                    } catch(err) { alert('Errore AI: '+err.message); }
+                    setAiBusy(false);
+                  }} style={{background:'linear-gradient(135deg,#0369a1,#7c3aed)',color:'#fff',border:'none',padding:'8px 14px',borderRadius:5,fontSize:12,cursor:aiBusy?'wait':'pointer',fontWeight:600,opacity:aiBusy?.7:1}}>
+                    {aiBusy?'⏳ Gemini sta analizzando...':'🤖 Auto-compila tutto da PDF (AI Gemini)'}
+                  </button>
+                )}
+                <div style={{fontSize:10,color:T.textL,marginTop:6,fontStyle:'italic'}}>
+                  L'AI legge il PDF (anche scansionato) ed estrae codice, n° ordine, importo, date, milestone.
+                </div>
               </div>
             ):(
               <label style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:8,padding:'7px 14px',border:`1px solid ${T.border}`,borderRadius:6,fontSize:12,background:'#fff'}}>
@@ -4066,7 +4175,13 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
                   const f=e.target.files[0];
                   if(!f) return;
                   const url=URL.createObjectURL(f);
-                  setContrattoFile({name:f.name,url,size:f.size,type:f.type});
+                  // Leggi anche come base64 per AI
+                  const reader = new FileReader();
+                  reader.onload = ()=> {
+                    const base64 = reader.result.split(',')[1];
+                    setContrattoFile({name:f.name,url,size:f.size,type:f.type,base64});
+                  };
+                  reader.readAsDataURL(f);
                 }}/>
               </label>
             )}
