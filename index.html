@@ -239,13 +239,14 @@ const calcolaGaranzia = (fattura, commessa)=>{
   if(fattura.tipoRif==='Acconto') return 0; // acconti mai garanzia
   // Se la commessa ha REGOLE DI PAGAMENTO con saldo/garanzia come milestone separate
   // (es. Benetti 10/84/3/3), allora NON trattenere garanzia su ogni fattura SAL:
-  // il 3% saldo e il 3% garanzia verranno fatturati come rate separate alla fine.
   const ms = commessa.regolePagamento?.milestone || [];
   if(ms.length > 0) {
     const hasMsSeparate = ms.some(m => m.tipo==='garanzia' || m.tipo==='saldo');
     if(hasMsSeparate) return 0;
   }
   if(!commessa.garanzia) return 0;
+  // Se l'utente ha esplicitamente indicato "nessuna trattenuta su fatture" (Benetti) → 0
+  if(commessa.garanzia.trattenutaSuFatture===false) return 0;
   const g = commessa.garanzia;
   if(g.tipo==='Percentuale') {
     const perc = parseFloat(g.val)||0;
@@ -4054,13 +4055,16 @@ const PageNuovaCommessa = ({onNav, addCommessa, addTemplate, deleteTemplate})=>{
   const [accActive,setAccActive]=useState(false);
   const [accTipo,setAccTipo]=useState('Percentuale');
   const [accVal,setAccVal]=useState('');
-  const [accRegola,setAccRegola]=useState('su_ogni_sal');
+  const [accRegola,setAccRegola]=useState('primo_sal');
+  const [accModalitaPag,setAccModalitaPag]=useState(''); // ID modalità pagamento
 
   const [garActive,setGarActive]=useState(false);
   const [garTipo,setGarTipo]=useState('Percentuale');
   const [garVal,setGarVal]=useState('');
   const [garEvento,setGarEvento]=useState('Fine lavori');
   const [garSvincolo,setGarSvincolo]=useState('6');
+  const [garTrattenutaSuFatture,setGarTrattenutaSuFatture]=useState(true); // false = nessuna ritenuta, è milestone separata
+  const [garModalitaPag,setGarModalitaPag]=useState(''); // ID modalità pagamento
 
   const [pagMode,setPagMode]=useState('30gg FM');
   const [fattMode,setFattMode]=useState('SAL mensile');
@@ -4263,7 +4267,7 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                       if(ext.modalita_fatturazione) setFattMode(ext.modalita_fatturazione);
                       if(ext.termini_pagamento_default) setPagMode(ext.termini_pagamento_default);
                       if(Array.isArray(ext.milestone) && ext.milestone.length>0) {
-                        // milestone ai → memorizzo come window globale, lo step 2 le caricherà
+                        // milestone ai → memorizzo come window globale + attivo i toggle Acconto/Garanzia
                         const mps = D.modalitaPagamento||[];
                         const findMP = (label) => {
                           if(!label) return '';
@@ -4283,11 +4287,31 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                           condizioni:m.condizioni||'',
                           fideiussioneAlt:{attiva:!!m.fideiussione_alt_perc,perc:m.fideiussione_alt_perc||5,mesi:m.fideiussione_alt_mesi||12},
                         }));
-                        // Salvo in window per pickup nello step 2 / dopo creazione
                         window._aiMilestonePending = aiMs;
-                        alert(`✓ Form pre-compilato.\n\n${aiMs.length} milestone identificate – verranno applicate al passo 2 (Regole).\n\nVerifica i dati base e clicca "Avanti → Regole" per continuare.`);
+                        // Auto-attiva i toggle legacy Acconto/Garanzia dai dati milestone
+                        const accMs = aiMs.find(m=>m.tipo==='acconto' || /acconto|inizio\s*lavori/i.test(m.titolo));
+                        if(accMs) {
+                          setAccActive(true);
+                          setAccTipo('Percentuale');
+                          setAccVal(String(accMs.perc));
+                          setAccRegola('primo_sal'); // default Benetti
+                          if(accMs.modalitaPagamentoId) setAccModalitaPag(accMs.modalitaPagamentoId);
+                        }
+                        const garMs = aiMs.find(m=>m.tipo==='garanzia');
+                        if(garMs) {
+                          setGarActive(true);
+                          setGarTipo('Percentuale');
+                          setGarVal(String(garMs.perc));
+                          setGarTrattenutaSuFatture(false); // default Benetti = milestone separata
+                          // Estrai mesi da triggerExtra
+                          const mesi = parseInt(garMs.triggerExtra)||12;
+                          setGarSvincolo(['6','12','24'].includes(String(mesi))?String(mesi):'custom');
+                          setGarEvento('Fine lavori');
+                          if(garMs.modalitaPagamentoId) setGarModalitaPag(garMs.modalitaPagamentoId);
+                        }
+                        alert(`✓ Form pre-compilato!\n\nDati base: codice, cliente, importo, date.\nRegole economiche: ${accMs?'Acconto attivo':''} ${accMs&&garMs?'+ ':''}${garMs?'Garanzia attiva':''}.\nMilestone (${aiMs.length}): applicate al "Conferma creazione".\n\nVerifica e scrolla in basso per Conferma.`);
                       } else {
-                        alert('✓ Form pre-compilato.\nNessuna milestone trovata: imposta manualmente al passo 2 (Regole).');
+                        alert('✓ Form pre-compilato.\nNessuna milestone trovata: imposta manualmente le regole sotto.');
                       }
                     } catch(err) { alert('Errore AI: '+err.message); }
                     setAiBusy(false);
@@ -4363,6 +4387,12 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                       <option value="personalizzata">Regola personalizzata</option>
                     </select>
                   </LabeledField>
+                  <LabeledField label="Modalità pagamento acconto">
+                    <select value={accModalitaPag} onChange={e=>setAccModalitaPag(e.target.value)} style={SI}>
+                      <option value="">— Seleziona dalla libreria —</option>
+                      {(D.modalitaPagamento||[]).map(mp=><option key={mp.id} value={mp.id}>{mp.nome}</option>)}
+                    </select>
+                  </LabeledField>
                   {impN>0&&accVal&&(
                     <div style={{padding:10,background:'#faf5ff',borderRadius:8,border:'1px solid #e9d5ff'}}>
                       <div style={{fontSize:11,color:T.textL,marginBottom:2}}>Importo acconto calcolato</div>
@@ -4380,16 +4410,35 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
             <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',background:garActive?'#fffbeb':'#fafafa',cursor:'pointer'}} onClick={()=>setGarActive(a=>!a)}>
               <input type="checkbox" checked={garActive} readOnly style={{accentColor:T.amber,width:16,height:16,cursor:'pointer'}}/>
               <div style={{flex:1}}>
-                <div style={{fontWeight:700,fontSize:13,color:garActive?T.amber:T.text}}>Garanzia (ritenuta su fatture)</div>
-                <div style={{fontSize:11,color:T.textL}}>Percentuale trattenuta su ogni SAL/fattura. Data svincolo = calcolata automaticamente al 100% SAL.</div>
+                <div style={{fontWeight:700,fontSize:13,color:garActive?T.amber:T.text}}>Garanzia contrattuale</div>
+                <div style={{fontSize:11,color:T.textL}}>Trattenuta su SAL OPPURE milestone separata pagata a fine periodo (es. Benetti = 3% dopo 12 mesi senza ritenuta sui SAL).</div>
               </div>
               {garActive&&garImportoEsempio>0&&<span style={{fontWeight:700,color:T.amber}}>{garTipo==='Percentuale'?`${garVal}% = ${fmt(garImportoEsempio)}`:fmt(garImportoEsempio)}</span>}
             </div>
             {garActive&&(
               <div style={{padding:'14px 16px',borderTop:`1px solid ${T.border}`,background:T.white}}>
-                <div style={{background:T.amberL,border:'1px solid #fde68a',borderRadius:6,padding:'7px 12px',marginBottom:12,fontSize:12,color:'#92400e'}}>
-                  ℹ️ La <b>data di svincolo</b> viene calcolata automaticamente quando la commessa raggiunge il 100% del SAL — non inserire una data manuale.
-                </div>
+                {/* Modalità trattenuta */}
+                <LabeledField label="Modalità garanzia">
+                  <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+                    <label style={{display:'flex',gap:6,alignItems:'center',fontSize:13,cursor:'pointer',fontWeight:garTrattenutaSuFatture?600:400}}>
+                      <input type="radio" checked={garTrattenutaSuFatture===true} onChange={()=>setGarTrattenutaSuFatture(true)} style={{accentColor:T.amber}}/>
+                      Trattenuta su ogni SAL/fattura
+                    </label>
+                    <label style={{display:'flex',gap:6,alignItems:'center',fontSize:13,cursor:'pointer',fontWeight:garTrattenutaSuFatture===false?600:400}}>
+                      <input type="radio" checked={garTrattenutaSuFatture===false} onChange={()=>setGarTrattenutaSuFatture(false)} style={{accentColor:T.amber}}/>
+                      Nessuna trattenuta — milestone separata (Benetti)
+                    </label>
+                  </div>
+                </LabeledField>
+                {garTrattenutaSuFatture ? (
+                  <div style={{background:T.amberL,border:'1px solid #fde68a',borderRadius:6,padding:'7px 12px',marginBottom:12,marginTop:8,fontSize:12,color:'#92400e'}}>
+                    ℹ️ Trattenuta del N% su ogni fattura SAL. Data svincolo calcolata automaticamente.
+                  </div>
+                ) : (
+                  <div style={{background:'#dcfce7',border:'1px solid #86efac',borderRadius:6,padding:'7px 12px',marginBottom:12,marginTop:8,fontSize:12,color:'#15803d'}}>
+                    ✓ Le fatture SAL passano nette al 100%. La garanzia è una rata separata pagata a scadenza.
+                  </div>
+                )}
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                   <LabeledField label="Tipo garanzia">
                     <div style={{display:'flex',gap:12}}>
@@ -4401,7 +4450,7 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                     </div>
                   </LabeledField>
                   <LabeledField label={garTipo==='Percentuale'?'Percentuale (%)':'Importo fisso (€)'}>
-                    <input type="number" value={garVal} onChange={e=>setGarVal(e.target.value)} placeholder={garTipo==='Percentuale'?'es. 10':'es. 58000'} style={SI}/>
+                    <input type="number" value={garVal} onChange={e=>setGarVal(e.target.value)} placeholder={garTipo==='Percentuale'?'es. 3':'es. 23000'} style={SI}/>
                   </LabeledField>
                   <LabeledField label="Evento di inizio svincolo">
                     <select value={garEvento} onChange={e=>setGarEvento(e.target.value)} style={SI}>
@@ -4411,12 +4460,18 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                       <option>Consegna</option>
                     </select>
                   </LabeledField>
-                  <LabeledField label="Durata svincolo">
+                  <LabeledField label="Durata svincolo (mesi)">
                     <select value={garSvincolo} onChange={e=>setGarSvincolo(e.target.value)} style={SI}>
                       <option value="6">6 mesi</option>
                       <option value="12">12 mesi</option>
                       <option value="24">24 mesi</option>
                       <option value="custom">Personalizzato</option>
+                    </select>
+                  </LabeledField>
+                  <LabeledField label="Modalità pagamento garanzia">
+                    <select value={garModalitaPag} onChange={e=>setGarModalitaPag(e.target.value)} style={SI}>
+                      <option value="">— Seleziona dalla libreria —</option>
+                      {(D.modalitaPagamento||[]).map(mp=><option key={mp.id} value={mp.id}>{mp.nome}</option>)}
                     </select>
                   </LabeledField>
                 </div>
@@ -4499,8 +4554,8 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                 incassato: 0,
                 madreId: tipo==='Extra'?madreId:null,
                 autonomo: tipo==='Extra'?autonomo:null,
-                acconto: accActive ? {tipo:accTipo,val:accVal,regola:accRegola,importo:accImporto} : null,
-                garanzia: garActive ? {tipo:garTipo,val:garVal,evento:garEvento,svincolo:garSvincolo} : null,
+                acconto: accActive ? {tipo:accTipo,val:accVal,regola:accRegola,importo:accImporto,modalitaPagamentoId:accModalitaPag||null} : null,
+                garanzia: garActive ? {tipo:garTipo,val:garVal,evento:garEvento,svincolo:garSvincolo,trattenutaSuFatture:garTrattenutaSuFatture,modalitaPagamentoId:garModalitaPag||null} : null,
                 regolePagamento: aiMs.length>0 ? { milestone: aiMs, totalePerc: totPercAI } : null,
                 compEnabled,
                 contratto: contrattoFile||null,
