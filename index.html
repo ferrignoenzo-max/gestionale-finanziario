@@ -1897,6 +1897,35 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
       </div>
       {editOpen&&<EditCommessaModal commessa={c} onClose={()=>setEditOpen(false)} updateCommessa={updateCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
 
+      {/* ─── 4 KPI riepilogo finanziario - SEMPRE IN CIMA, subito visibili ─── */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Importo commessa</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.text}}>{fmt(c.importoContrattuale||0)}</div>
+          <div style={{fontSize:10,color:T.textL}}>contratto base</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Commessa (SAL)</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(salProdAttivoTotDyn)}</div>
+          <div style={{fontSize:10,color:T.textL}}>{c.importoContrattuale>0?(salProdAttivoTotDyn/c.importoContrattuale*100).toFixed(1):0}% del contratto · {fattureSALDyn.length} fatt.</div>
+        </div>
+        <div onClick={()=>setExpanded(expanded==='extra'?null:'extra')} style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.purple}`,cursor:'pointer',transition:'box-shadow .2s'}}
+          onMouseEnter={e=>e.currentTarget.style.boxShadow='0 4px 12px rgba(0,0,0,.1)'}
+          onMouseLeave={e=>e.currentTarget.style.boxShadow=T.sh}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase',display:'flex',justifyContent:'space-between'}}>
+            <span>Fatturato Extra{c.importoContrattuale>0?` · ${(totExtraDyn/c.importoContrattuale*100).toFixed(1)}%`:''}</span>
+            <span style={{color:T.purple}}>{expanded==='extra'?'▼':'▶'}</span>
+          </div>
+          <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fmt(totExtraDyn)}</div>
+          <div style={{fontSize:10,color:T.textL}}>fuori contratto · {fattureExtraDyn.length} fatt. · clic dettaglio</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
+          <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(Math.max(0,(c.importoContrattuale||0)-salProdAttivoTotDyn))}</div>
+          <div style={{fontSize:10,color:T.textL}}>residuo contratto base</div>
+        </div>
+      </div>
+
       {/* Header KPIs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:14}}>
         {/* SAL % + Fatturato KPI card – cliccabile per espandere */}
@@ -1919,13 +1948,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         <KPICard label="Saldo commessa" value={fmt(saldo)} sub="Incassato – pagato" color={saldo>=0?T.blue:T.red} />
         <KPICard label="Garanzia maturata" value={c.garanzia?fmt(c.garanzia.nonIncassata||c.garanzia.residuo):'Nessuna'} sub={c.garanzia?`Svincolo: ${fmtDate(c.garanzia.svincolo)}`:''}  color={T.amber} onClick={()=>openModal('garanzie')} />
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,marginBottom:8}}>
-        <KPICard
-          label={`Extra fatturati${c.importoContrattuale>0?` · ${(totExtraDyn/c.importoContrattuale*100).toFixed(1)}% del contratto`:''}`}
-          value={fmt(totExtraDyn)}
-          sub={`${fattureExtraDyn.length} fatt. · ${extraByOrdine.length} ordini · clic dettaglio`}
-          color={T.purple}
-          onClick={()=>setExpanded(expanded==='extra'?null:'extra')} />
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginBottom:8}}>
         <KPICard label="Acconto residuo" value={c.acconto?fmt(c.acconto.residuo):'—'} sub={c.acconto?`Recuperato: ${fmt(c.acconto.recuperato)} · ${c.acconto.nota||''}`:c.tipoLavoro==='Ordine'?'Ordine – nessun acconto':'Nessun acconto'} color={T.purple} />
         <KPICard label="Fatture scadute" value={scadute.length} color={scadute.length>0?T.red:T.green} alert={scadute.length>0} onClick={()=>openModal('scadute')} />
         <KPICard label="Criticità" value={(c.criticita||[]).length} color={(c.criticita||[]).length>0?T.red:T.green} alert={(c.criticita||[]).length>0} onClick={()=>openModal('criticita',c)} />
@@ -2115,29 +2138,6 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         </div>
       )}
 
-      {/* ─── 4 KPI riepilogo finanziario - sempre visibili in alto ─── */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
-        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
-          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Importo commessa</div>
-          <div style={{fontSize:20,fontWeight:800,color:T.text}}>{fmt(c.importoContrattuale||0)}</div>
-          <div style={{fontSize:10,color:T.textL}}>contratto base</div>
-        </div>
-        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
-          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Commessa (SAL)</div>
-          <div style={{fontSize:20,fontWeight:800,color:T.green}}>{fmt(salProdAttivoTotDyn)}</div>
-          <div style={{fontSize:10,color:T.textL}}>{c.importoContrattuale>0?(salProdAttivoTotDyn/c.importoContrattuale*100).toFixed(1):0}% del contratto · {fattureSALDyn.length} fatt.</div>
-        </div>
-        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.purple}`}}>
-          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Fatturato Extra</div>
-          <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fmt(totExtraDyn)}</div>
-          <div style={{fontSize:10,color:T.textL}}>fuori contratto · {fattureExtraDyn.length} fatt.</div>
-        </div>
-        <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
-          <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
-          <div style={{fontSize:20,fontWeight:800,color:T.red}}>{fmt(Math.max(0,(c.importoContrattuale||0)-salProdAttivoTotDyn))}</div>
-          <div style={{fontSize:10,color:T.textL}}>residuo contratto base</div>
-        </div>
-      </div>
 
       {/* RIEPILOGO REGOLE PAGAMENTO (sempre visibile in alto) */}
       {(c.regolePagamento?.milestone||[]).length>0&&(()=>{
