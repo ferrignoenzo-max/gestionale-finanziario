@@ -491,6 +491,46 @@ async function loadFromSupabase() {
   linkFatture();
   ricalcolaKPI();
 }
+
+/* Persiste su Supabase i link commessa_id/commessa_codice per le fatture che linkFatture ha agganciato.
+   Da chiamare dopo loadFromSupabase + linkFatture. Aggiorna solo le fatture che hanno commessa.id risolto.
+   Confronta con i campi attuali in DB per evitare PATCH inutili. */
+async function persistLinkMatches() {
+  const SB_URL_P = 'https://acpvkosgvvljhnudrqpc.supabase.co';
+  const SB_KEY_P = SB_KEY;
+  const headersP = { apikey:SB_KEY_P, 'Authorization':`Bearer ${SB_KEY_P}`, 'Content-Type':'application/json' };
+  let updated = 0;
+  for (const arr of [{tab:'fatture_attive', list:D.fattureAttive}, {tab:'fatture_passive', list:D.fatturePassive}]) {
+    const toPatch = arr.list.filter(f => f.id && f.commessa);
+    // Carico stato corrente in DB per confronto
+    const idsList = toPatch.map(f => f.id);
+    if(!idsList.length) continue;
+    // Patch in chunk da 50
+    for(let i=0;i<toPatch.length;i+=50){
+      const chunk = toPatch.slice(i,i+50);
+      // Fetch attuali
+      const inFilter = 'in.(' + chunk.map(f=>`"${f.id}"`).join(',') + ')';
+      const cur = await fetch(`${SB_URL_P}/rest/v1/${arr.tab}?select=id,commessa_id&id=${inFilter}`, {headers:headersP});
+      const curJson = cur.ok ? await cur.json() : [];
+      const curMap = new Map(curJson.map(r=>[r.id, r.commessa_id]));
+      // Aggiorna solo quelle con valore diverso
+      for(const f of chunk){
+        const dbVal = curMap.get(f.id);
+        if(dbVal === f.commessa) continue;
+        try {
+          const r = await fetch(`${SB_URL_P}/rest/v1/${arr.tab}?id=eq.${f.id}`, {
+            method:'PATCH', headers:headersP,
+            body: JSON.stringify({ commessa_id: f.commessa, commessa_codice: f.commessaCodice||null })
+          });
+          if(r.ok) updated++;
+        } catch(e){ /* skip */ }
+      }
+    }
+  }
+  return updated;
+}
+window.persistLinkMatches = persistLinkMatches;
+window.loadFromSupabase = loadFromSupabase;
 KPI.salProdAttivoTot = D.commesse.reduce((a,c)=>a+c.salProdAttivoTot,0);
 KPI.salProdPassivoTot = D.commesse.reduce((a,c)=>a+c.salProdPassivoTot,0);
 KPI.salProdAttivoCommesse = D.commesse.filter(c=>c.tipoLavoro==='Commessa').reduce((a,c)=>a+c.salProdAttivoTot,0);
@@ -7720,6 +7760,7 @@ const PageImporta = ({bumpData})=>{
   const salvaSuSupabase=async()=>{
     if(!preview) return;
     setSaving(true);
+    let totInserted = 0;
     try {
       for(const {tipo,rows} of preview){
         const table=tipo==='fattureAttive'?'fatture_attive':'fatture_passive';
@@ -7746,11 +7787,38 @@ const PageImporta = ({bumpData})=>{
           const chunk=payload.slice(i,i+100);
           const res=await fetch(SB_URL2+'/rest/v1/'+table,{method:'POST',headers:SB_H2,body:JSON.stringify(chunk)});
           if(!res.ok){const txt=await res.text();throw new Error(table+': '+txt);}
+          totInserted += chunk.length;
         }
       }
-      setMsg('✅ Dati salvati su Supabase! Ricarica la pagina per vederli.');
+      // 🔄 Refresh + auto-link + persist senza richiedere reload manuale
+      setMsg('🔄 Salvate '+totInserted+' fatture, ricalcolo agganci alle commesse...');
+      try {
+        if(typeof window.loadFromSupabase === 'function') await window.loadFromSupabase();
+        const upd = (typeof window.persistLinkMatches === 'function') ? await window.persistLinkMatches() : 0;
+        bumpData();
+        setMsg(`✅ Importate ${totInserted} fatture · ${upd} agganci salvati su Supabase. Visita la commessa per vedere SAL/Extra.`);
+      } catch(e) {
+        setMsg(`✅ ${totInserted} fatture salvate (link persistito al prossimo refresh).`);
+      }
     } catch(err){setMsg('❌ Errore Supabase: '+err.message);}
     setSaving(false);
+  };
+
+  /* Bottone "Ri-aggancia tutte le fatture": utile per fatture importate prima
+     che la commessa esistesse. Esegue linkFatture in memoria e poi PATCH su Supabase. */
+  const [relinking,setRelinking]=useState(false);
+  const riAggancia=async()=>{
+    setRelinking(true);
+    setMsg('🔄 Ricarico fatture e commesse da Supabase...');
+    try {
+      if(typeof window.loadFromSupabase === 'function') await window.loadFromSupabase();
+      const upd = (typeof window.persistLinkMatches === 'function') ? await window.persistLinkMatches() : 0;
+      bumpData();
+      setMsg(`✅ Ri-agganciate ${upd} fatture alle commesse. SAL/Extra ora aggiornati.`);
+    } catch(e) {
+      setMsg('❌ Errore: '+e.message);
+    }
+    setRelinking(false);
   };
 
   const tipoLabel={fattureAttive:'Fatture Attive',fatturePassive:'Fatture Passive'};
@@ -7768,7 +7836,9 @@ const PageImporta = ({bumpData})=>{
             <input type="file" accept=".xlsx,.xls,.csv" onChange={onFileChange} style={{display:'none'}}/>
           </label>
           {file&&<span style={{fontSize:13,color:T.textL}}>{file.name} ({(file.size/1024).toFixed(1)} KB)</span>}
+          <Btn onClick={riAggancia} variant='outline' size='sm' disabled={relinking} style={{marginLeft:'auto'}}>{relinking?'Ri-aggancio...':'🔗 Ri-aggancia fatture esistenti'}</Btn>
         </div>
+        <div style={{fontSize:11,color:T.textL,marginTop:6,fontStyle:'italic'}}>Il bottone "Ri-aggancia" rilegge tutte le fatture e commesse, ricalcola i match (es. BX106 → fatture BX106) e salva i collegamenti su Supabase. Utile dopo aver creato una nuova commessa.</div>
         {msg&&<div style={{marginTop:12,padding:'10px 14px',borderRadius:8,background:msg.startsWith('✅')?'#f0fdf4':msg.startsWith('⚠️')?'#fffbeb':'#fef2f2',color:msg.startsWith('✅')?'#166534':msg.startsWith('⚠️')?'#92400e':'#991b1b',fontSize:13}}>{msg}</div>}
       </Card>
       {preview&&preview.map(({tipo,rows})=>(
