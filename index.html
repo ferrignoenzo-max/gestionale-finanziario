@@ -858,14 +858,20 @@ const Sidebar = ({page,onNav,onSearch})=>{
 /* ─── HEADER ──────────────────────────────────────────────── */
 const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
-const Header = ({page,onAI,selectedCommessa})=>(
+const Header = ({page,onAI,onRefresh,refreshing,lastRefresh,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
     <div>
       <h1 style={{fontSize:17,fontWeight:700,color:T.text}}>{TITLES[page]||'Gestionale'}</h1>
       {selectedCommessa&&<div style={{fontSize:11,color:T.textL,marginTop:2}}>Commessa {selectedCommessa.codice} · {selectedCommessa.cliente}</div>}
     </div>
     <div style={{display:'flex',gap:8,alignItems:'center'}}>
-      <div style={{fontSize:11,color:T.textL}}>{today.toLocaleDateString('it-IT')}</div>
+      <div style={{fontSize:11,color:T.textL,display:'flex',flexDirection:'column',alignItems:'flex-end'}}>
+        <span>{today.toLocaleDateString('it-IT')}</span>
+        {lastRefresh && <span style={{fontSize:10,fontStyle:'italic'}}>Sync: {lastRefresh}</span>}
+      </div>
+      <Btn onClick={onRefresh} variant='outline' size='sm' disabled={refreshing} title="Ricarica dati da Supabase + ri-aggancia fatture">
+        <span style={{display:'inline-block',transition:'transform .3s',transform:refreshing?'rotate(360deg)':'none'}}>{refreshing?'⏳':'🔄'}</span> {refreshing?'Aggiorno...':'Aggiorna'}
+      </Btn>
       <Btn onClick={onAI} variant='ghost' size='sm'>🤖 Chiedi all'AI</Btn>
       <div style={{width:32,height:32,borderRadius:'50%',background:T.blue,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:12,fontWeight:700}}>EF</div>
     </div>
@@ -8056,6 +8062,26 @@ const App = ()=>{
   const [resetKey,setResetKey]=useState(0);
   const [dataTick,setDataTick]=useState(0);
   const bumpData = useCallback(()=>setDataTick(t=>t+1),[]);
+  const [refreshing,setRefreshing]=useState(false);
+  const [lastRefresh,setLastRefresh]=useState('');
+
+  /* 🔄 REFRESH globale: ricarica tutto da Supabase + ri-aggancia fatture + persiste link.
+     Esposto via Header in alto, accessibile da qualunque pagina. */
+  const onRefresh = useCallback(async ()=>{
+    setRefreshing(true);
+    try {
+      await loadFromSupabase();
+      if(typeof window.persistLinkMatches === 'function'){
+        try { await window.persistLinkMatches(); } catch(e) { console.warn('persistLinkMatches:', e.message); }
+      }
+      bumpData();
+      const now = new Date();
+      setLastRefresh(now.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+    } catch(err) {
+      alert('❌ Aggiornamento fallito: '+err.message);
+    }
+    setRefreshing(false);
+  },[bumpData]);
 
   // Ctrl/Cmd+K apre ricerca globale
   useEffect(()=>{
@@ -8291,7 +8317,7 @@ const App = ()=>{
     <div key={resetKey} style={{display:'flex',height:'100vh',overflow:'hidden',background:T.bg,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif'}}>
       <Sidebar page={page} onNav={navigate} onSearch={()=>setSearchOpen(true)}/>
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',marginRight:aiOpen?380:0,transition:'margin-right .2s'}}>
-        <Header page={page} onAI={()=>setAiOpen(a=>!a)} selectedCommessa={page==='dettaglioCommessa'?selCommessa:null}/>
+        <Header page={page} onAI={()=>setAiOpen(a=>!a)} onRefresh={onRefresh} refreshing={refreshing} lastRefresh={lastRefresh} selectedCommessa={page==='dettaglioCommessa'?selCommessa:null}/>
         <Breadcrumb items={crumbs} onNav={navigate}/>
         <div style={contentStyle}>
           {dbLoading&&<div style={{position:'fixed',inset:0,background:'rgba(255,255,255,.85)',zIndex:999,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16}}>
