@@ -1795,7 +1795,16 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
   const scadute=D.fattureAttive.filter(f=>f.commessa===c.id&&f.stato==='Scaduta');
   const extraC=D.extra.filter(e=>e.commessa===c.id);
   const salC=D.sal.filter(s=>s.commessa===c.id);
-  const salProdPct=c.importoContrattuale>0?Math.round((c.salProdAttivoTot/c.importoContrattuale)*100):0;
+  // SAL produttivo dinamico: acconto + SAL fatturati (esclude extra/saldo/garanzia)
+  // Se c.salProdAttivoTot esiste e > 0 lo usa (override manuale), altrimenti calcola dalle fatture
+  const _impOf = (f)=> (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
+  const _isExtra = (f)=> /\bextra\b|\bbap\b/i.test(f.oggetto||'');
+  const _isSaldo = (f)=> f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
+  const _isGaranzia = (f)=> f.tipoRifOverride==='Garanzia' || /garanzia|svincolo/i.test(f.oggetto||'');
+  const salProdAttivoTotDyn = c.salProdAttivoTot && c.salProdAttivoTot>0
+    ? c.salProdAttivoTot
+    : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f)).reduce((a,f)=>a+_impOf(f),0);
+  const salProdPct=c.importoContrattuale>0?Math.round((salProdAttivoTotDyn/c.importoContrattuale)*100):0;
   const tabs=['pagamenti','sal','fatture','extra','compensazioni','regole'];
 
   return (
@@ -1843,13 +1852,13 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginTop:14}}>
               <div style={{background:'#eff6ff',borderRadius:6,padding:'8px 12px',textAlign:'center'}}>
                 <div style={{fontSize:10,color:'#2563eb',fontWeight:700,marginBottom:2}}>SAL PRODUTTIVO</div>
-                <div style={{fontSize:16,fontWeight:800,color:'#2563eb'}}>{fmt(c.salProdAttivoTot)}</div>
-                <div style={{fontSize:10,color:T.textL}}>{Math.round((c.salProdAttivoTot/c.importoContrattuale)*100)}% del contratto</div>
+                <div style={{fontSize:16,fontWeight:800,color:'#2563eb'}}>{fmt(salProdAttivoTotDyn)}</div>
+                <div style={{fontSize:10,color:T.textL}}>{c.importoContrattuale>0?Math.round(salProdAttivoTotDyn/c.importoContrattuale*100):0}% del contratto · acconto + SAL</div>
               </div>
               <div style={{background:'#f0fdf4',borderRadius:6,padding:'8px 12px',textAlign:'center'}}>
                 <div style={{fontSize:10,color:'#16a34a',fontWeight:700,marginBottom:2}}>FATT. PRODUTTIVO</div>
-                <div style={{fontSize:16,fontWeight:800,color:'#16a34a'}}>{fmt(c.salProdAttivoTot)}</div>
-                <div style={{fontSize:10,color:T.textL}}>Da SAL (esclude acconto)</div>
+                <div style={{fontSize:16,fontWeight:800,color:'#16a34a'}}>{fmt(salProdAttivoTotDyn)}</div>
+                <div style={{fontSize:10,color:T.textL}}>Da fatture (esclude extra/saldo/garanzia)</div>
               </div>
               {c.acconto?.residuo>0?(
                 <div style={{background:'#fffbeb',borderRadius:6,padding:'8px 12px',textAlign:'center'}}>
@@ -3095,7 +3104,16 @@ const calcBarreCommessa = (c)=>{
   // Garanzia: trattenuta sul pagamento, NON entra nelle barre.
   // ─────────────────────────────────────────────────────────────────
   const contr      = c.importoContrattuale || 1;
-  const salAbs     = c.salProdAttivoTot || 0;
+  // SAL produttivo dinamico: se c.salProdAttivoTot non popolato, calcolalo dalle fatture
+  // (acconto + SAL fatturati, escludendo extra/saldo/garanzia)
+  let salAbs = c.salProdAttivoTot || 0;
+  if(salAbs===0 && Array.isArray(D.fattureAttive)) {
+    const isExtra = (f)=> /\bextra\b|\bbap\b/i.test(f.oggetto||'');
+    const isSaldo = (f)=> f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
+    const isGaranzia = (f)=> f.tipoRifOverride==='Garanzia' || /garanzia|svincolo/i.test(f.oggetto||'');
+    const impOf = (f)=> (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
+    salAbs = D.fattureAttive.filter(f=>f.commessa===c.id && !isExtra(f) && !isSaldo(f) && !isGaranzia(f)).reduce((a,f)=>a+impOf(f),0);
+  }
   const salRatio   = Math.min(1, salAbs / contr);          // SAL in [0,1]
   const salPct     = salRatio * 100;
   // Acconto residuo grafico: proporzionale, calcolato in tempo reale
