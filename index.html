@@ -4071,30 +4071,30 @@ const PageNuovaCommessa = ({onNav, addCommessa, addTemplate, deleteTemplate})=>{
                     const clientiAnagrafica = (D.anagrafica||[]).filter(a=>a.tipo==='Cliente'||!a.tipo).map(a=>a.nome).slice(0,30);
                     const prompt=`Sei un assistente che estrae dati da CONTRATTI/ORDINI di clienti del settore navale per la società italiana EFFEVI SRL (cantieri navali, appaltatore).
 
+L'utente ha già scelto il tipo di lavoro: "${tipo}" (Commessa/Ordine/Extra). NON cambiare questa scelta.
+
 REGOLE FONDAMENTALI:
 1. EFFEVI SRL è L'APPALTATORE/FORNITORE (NON è mai il "cliente"). Il cliente di Effevi è chi commissiona il lavoro: tipicamente AZIMUT-BENETTI SPA, SANLORENZO SPA, THE ITALIAN SEA GROUP SPA (TISG). Ignora completamente il nome/indirizzo Effevi.
-2. Se il PDF ha un valore come BX103/BX104/BX105/BX106/BX107/BMP/BXL → cliente è SEMPRE "AZIMUT-BENETTI SPA" e tipo_lavoro è "Commessa".
+2. Se il PDF ha un valore come BX103/BX104/BX105/BX106/BX107/BMP/BXL → cliente è "AZIMUT-BENETTI SPA".
 3. Se ci sono codici tipo SLA/SLM/XSP o numerici 5 cifre → cliente è "SANLORENZO S.P.A. IN SIGLA SL S.P.A." (o "SAN LORENZO SPA").
 4. Se ci sono codici 600/606/614/617/598 → cliente è "THE ITALIAN SEA GROUP SPA".
-5. Importo > 100.000 € e SAL mensili → tipo_lavoro = "Commessa". Importo basso e singola fattura → "Ordine".
-6. Per le milestone Benetti standard: 10% acconto + 84% SAL mensili + 3% saldo fine lavori + 3% garanzia 12 mesi.
+5. Per le milestone Benetti standard: 10% acconto + 84% SAL mensili + 3% saldo fine lavori + 3% garanzia 12 mesi.
 
-CLIENTI ESISTENTI IN ANAGRAFICA (preferisci uno di questi se possibile):
+CLIENTI ESISTENTI IN ANAGRAFICA (preferisci uno di questi):
 ${clientiAnagrafica.join(', ')}
 
 Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backtick):
 
 {
-  "codice_commessa": "es. BX107 (codice usato come riferimento commessa, NON il codice fornitore Effevi)",
-  "nr_ordine": "es. MYOA22019935/APP (numero ordine cliente)",
-  "cliente": "ragione sociale completa del CLIENTE/COMMITTENTE (chi paga). NON Effevi.",
-  "nome": "descrizione breve lavori (es. 'Impianti idraulici tubolature carpenteria')",
-  "tipo_lavoro": "Commessa" oppure "Ordine" oppure "Extra",
+  "codice_commessa": "es. BX107",
+  "nr_ordine": "es. MYOA22019935/APP",
+  "cliente": "ragione sociale completa CLIENTE/COMMITTENTE (NON Effevi)",
+  "nome": "descrizione breve lavori",
   "importo_totale": numero in euro senza separatori,
   "data_ordine": "YYYY-MM-DD",
   "data_consegna": "YYYY-MM-DD se presente",
   "modalita_fatturazione": "SAL mensile" o "SAL bimestrale" o "Milestone" o "Soluzione unica" o "Libera",
-  "termini_pagamento_default": "es. '60gg FM' (per il SAL principale)",
+  "termini_pagamento_default": "es. '60gg FM'",
   "milestone": [
     {
       "titolo": "es. Acconto inizio lavori",
@@ -4152,7 +4152,7 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                         }
                       }
                       if(ext.nome) setNome(ext.nome);
-                      if(ext.tipo_lavoro && ['Commessa','Ordine','Extra'].includes(ext.tipo_lavoro)) setTipo(ext.tipo_lavoro);
+                      // NOTA: tipo_lavoro NON viene sovrascritto dall'AI - lo sceglie l'utente
                       if(ext.importo_totale) setImporto(String(ext.importo_totale));
                       if(ext.data_ordine) setDataInizio(ext.data_ordine);
                       if(ext.data_consegna) setDataFine(ext.data_consegna);
