@@ -2424,7 +2424,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         <KPICard label="Da incassare netto" value={fmt(daInc)} color={T.green} onClick={()=>openModal('daIncassare')} />
         <KPICard label="Da pagare netto" value={fmt(daPag)} color={T.red} onClick={()=>openModal('daPagare')} />
         <KPICard label="Saldo commessa" value={fmt(saldo)} sub="Incassato – pagato" color={saldo>=0?T.blue:T.red} />
-        <KPICard label="Garanzia maturata" value={c.garanzia?fmt(garanziaMaturataDyn):'Nessuna'} sub={c.garanzia?`Residua: ${fmt(garanziaResiduaDyn)} · Svincolo: ${fmtDate(c.garanzia.svincolo||c.garanzia.scadenzaContrattuale)||'—'}`:''} color={T.amber} onClick={()=>openModal('garanzie')} />
+        <KPICard label="Garanzia maturata" value={c.garanzia?fmt(garanziaMaturataDyn):'Nessuna'} sub={c.garanzia?`Residua: ${fmt(garanziaResiduaDyn)} · Svincolo: ${fmtDate(c.garanzia.svincolo||c.garanzia.scadenzaContrattuale)||'—'} · ${expanded==='gar'?'▼':'▶'} clic dettaglio`:''} color={T.amber} onClick={()=>setExpanded(expanded==='gar'?null:'gar')} />
         {/* ⭐ Totale Fatturato Commessa + Extra — sostituisce lo spazio bianco accanto a Garanzia */}
         <div style={{background:'linear-gradient(135deg,#f0fdf4 0%,#faf5ff 100%)',borderRadius:10,padding:16,boxShadow:T.sh,borderLeft:`4px solid #0d9488`,gridColumn:'span 4',display:'flex',justifyContent:'space-between',alignItems:'center',gap:20}}>
           <div>
@@ -2557,6 +2557,124 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
           ))}
         </Card>
       )}
+
+      {/* TENDINA GARANZIA – dettaglio per fattura + svincolo */}
+      {expanded==='gar' && (() => {
+        if(!c.garanzia) return (
+          <Card style={{marginBottom:18,padding:0,borderTop:`3px solid ${T.amber}`}}>
+            <div style={{padding:'12px 16px',background:T.amberL,borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#92400e'}}>🔐 Garanzia</div>
+              <button onClick={()=>setExpanded(null)} style={{background:'none',border:'none',color:T.textL,cursor:'pointer',fontSize:14}}>✕</button>
+            </div>
+            <div style={{padding:24,textAlign:'center',color:T.textL}}>Nessuna garanzia configurata. Apri ✏️ Modifica per attivarla.</div>
+          </Card>
+        );
+        const g = c.garanzia;
+        const fattureGar = D.fattureAttive.filter(f=>f.commessa===c.id && (parseFloat(f.garanzia)||0)>0)
+          .sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+        const oggi = new Date();
+        const dataSvincolo = g.svincolo || g.scadenzaContrattuale || null;
+        const svincScaduto = dataSvincolo ? new Date(dataSvincolo) <= oggi : false;
+        const giorniMancanti = dataSvincolo ? Math.round((new Date(dataSvincolo).getTime() - oggi.getTime())/86400000) : null;
+        let cumulato = 0;
+        return (
+          <Card style={{marginBottom:18,padding:0,borderTop:`3px solid ${T.amber}`}}>
+            <div style={{padding:'12px 16px',background:T.amberL,borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:700,fontSize:13,color:'#92400e'}}>🔐 Garanzia – {fattureGar.length} fatture · maturato {fmt(garanziaMaturataDyn)} · residuo {fmt(garanziaResiduaDyn)}</div>
+              <button onClick={()=>setExpanded(null)} style={{background:'none',border:'none',color:T.textL,cursor:'pointer',fontSize:14}}>✕</button>
+            </div>
+
+            {/* RIEPILOGO REGOLE */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,padding:'14px 16px',background:'#fafbfc',borderBottom:`1px solid ${T.border}`}}>
+              <div>
+                <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Trattenuta</div>
+                <div style={{fontSize:14,fontWeight:700,color:'#92400e'}}>{g.tipo==='Percentuale'?`${g.val||g.perc||0}%`:fmt(g.val||0)}</div>
+                <div style={{fontSize:10,color:T.textL}}>{g.trattenutaSuFatture===false?'Milestone separata (Benetti)':'Su ogni fattura SAL'}</div>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Su acconto</div>
+                <div style={{fontSize:14,fontWeight:700,color:g.applicaSuAcconto?T.green:T.textL}}>{g.applicaSuAcconto?'Sì':'No'}</div>
+                <div style={{fontSize:10,color:T.textL}}>{g.applicaSuAcconto?'Trattenuta anche su acconto':'Solo SAL'}</div>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Evento svincolo</div>
+                <div style={{fontSize:14,fontWeight:700,color:T.text}}>{g.evento||'—'}</div>
+                <div style={{fontSize:10,color:T.textL}}>+ {g.svincoloMesi||g.durataMesi||'—'} mesi</div>
+              </div>
+              <div>
+                <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Data svincolo</div>
+                <div style={{fontSize:14,fontWeight:700,color:svincScaduto?T.red:T.text}}>{fmtDate(dataSvincolo)||'—'}</div>
+                <div style={{fontSize:10,color:svincScaduto?T.red:T.textL,fontWeight:svincScaduto?700:400}}>
+                  {giorniMancanti===null ? '—' : svincScaduto ? `🔴 Scaduto ${-giorniMancanti}gg fa — svincolabile` : `Tra ${giorniMancanti}gg`}
+                </div>
+              </div>
+            </div>
+
+            {/* TABELLA FATTURE CON TRATTENUTA */}
+            {fattureGar.length===0 ? (
+              <div style={{padding:24,textAlign:'center',color:T.textL,fontSize:13}}>
+                Nessuna fattura ha ancora una trattenuta calcolata. {g.trattenutaSuFatture===false?'(la garanzia è una milestone separata, non una trattenuta su fattura)':'Verifica che le fatture SAL siano linkate alla commessa.'}
+              </div>
+            ) : (
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                <thead>
+                  <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Num</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Data</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>Imp. fattura</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>%</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>Trattenuta</th>
+                    <th style={{padding:'8px 12px',textAlign:'right'}}>Cumulativo</th>
+                    <th style={{padding:'8px 12px',textAlign:'left'}}>Stato fattura</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fattureGar.map(f=>{
+                    const gImp = parseFloat(f.garanzia)||0;
+                    const lordo = parseFloat(f.lordo)||0;
+                    const pctSingolo = lordo>0 ? (gImp/lordo*100) : 0;
+                    cumulato += gImp;
+                    return (
+                      <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                        <td style={{padding:'7px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                        <td style={{padding:'7px 12px'}}>{fmtDate(f.data)}</td>
+                        <td style={{padding:'7px 12px',textAlign:'right'}}>{fmt(lordo)}</td>
+                        <td style={{padding:'7px 12px',textAlign:'right',color:T.textL,fontWeight:600}}>{pctSingolo.toFixed(2)}%</td>
+                        <td style={{padding:'7px 12px',textAlign:'right',color:'#92400e',fontWeight:700}}>{fmt(gImp)}</td>
+                        <td style={{padding:'7px 12px',textAlign:'right',color:T.amber,fontWeight:700}}>{fmt(cumulato)}</td>
+                        <td style={{padding:'7px 12px'}}><Badge text={f.stato}/></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{borderTop:`2px solid ${T.amber}`,background:T.amberL,fontWeight:800}}>
+                    <td colSpan={4} style={{padding:'10px 12px',color:'#92400e'}}>Totale maturato ({fattureGar.length} fatture)</td>
+                    <td style={{padding:'10px 12px',textAlign:'right',color:'#92400e'}}>{fmt(garanziaMaturataDyn)}</td>
+                    <td style={{padding:'10px 12px',textAlign:'right',color:'#92400e'}}>
+                      {c.importoContrattuale>0 ? `${(garanziaMaturataDyn/c.importoContrattuale*100).toFixed(2)}% del contratto` : ''}
+                    </td>
+                    <td/>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+
+            {/* MILESTONE FIDEIUSSIONE ALTERNATIVA (se presente nelle regole pagamento) */}
+            {(c.regolePagamento?.milestone||[]).filter(m=>m.fideiussioneAlt?.attiva).map((m,i)=>(
+              <div key={i} style={{padding:'12px 16px',background:'#fef3c7',borderTop:`1px solid ${T.border}`,fontSize:12,color:'#78350f'}}>
+                💡 <b>Sblocco anticipato disponibile</b> — Puoi sostituire la trattenuta con una <b>fideiussione bancaria del {m.fideiussioneAlt.perc||5}%</b> ({m.fideiussioneAlt.mesi||12} mesi) per liberare subito il capitale. Vedi milestone "{m.titolo}".
+              </div>
+            ))}
+
+            {svincScaduto && garanziaResiduaDyn>0 && (
+              <div style={{padding:'12px 16px',background:'#fef2f2',borderTop:`1px solid ${T.border}`,fontSize:12,color:'#991b1b',display:'flex',alignItems:'center',gap:10}}>
+                🔴 <b>Garanzia svincolabile!</b> La data di svincolo è passata. Importo da richiedere al cliente: <b>{fmt(garanziaResiduaDyn)}</b>.
+              </div>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* SAL + Fatturato progress – logica corretta */}
       <Card style={{marginBottom:18}}>
