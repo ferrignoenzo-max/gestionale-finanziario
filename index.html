@@ -2153,6 +2153,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
   // Fatture SAL del contratto base (per la tendina avanzamento)
   const fattureSALDyn = D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f))
     .sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+  // Icona/colore milestone (priorità al titolo: 'acconto' → 💰 viola anche se tipo=sal)
+  const _icona = (m)=> /\bacconto\b|\banticipo\b|\binizio\s*lavori\b/i.test(m?.titolo||'') ? '💰' : ({acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'}[m?.tipo]||'•');
+  const _colore = (m)=> /\bacconto\b|\banticipo\b/i.test(m?.titolo||'') ? T.purple : ({acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL}[m?.tipo]||T.textL);
   // Raggruppamento extra per nrOrdine
   const extraByOrdine = (() => {
     const m = new Map();
@@ -2506,11 +2509,6 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
 
       {/* RIEPILOGO REGOLE PAGAMENTO (sempre visibile in alto) */}
       {(c.regolePagamento?.milestone||[]).length>0&&(()=>{
-        // Icona/colore: priorità al titolo (se contiene 'acconto' usa 💰 anche se tipo=sal)
-        const _icona = (m)=> /\bacconto\b|\banticipo\b|\binizio\s*lavori\b/i.test(m.titolo||'') ? '💰' : ({acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'}[m.tipo]||'•');
-        const _colore = (m)=> /\bacconto\b|\banticipo\b/i.test(m.titolo||'') ? T.purple : ({acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL}[m.tipo]||T.textL);
-        const tipoIcon={acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
-        const tipoColor={acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL};
         return (
           <Card style={{marginBottom:18,padding:0,borderLeft:`4px solid ${T.blue}`}}>
             <div style={{padding:'10px 16px',background:'#f8fafc',borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
