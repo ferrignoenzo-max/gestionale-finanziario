@@ -328,7 +328,8 @@ const linkFatture = ()=>{
           fuzzy = !!c;
         }
         f.codiceRaw = parsed.raw;
-        f.tipoRif = parsed.tipo;
+        // Override manuale (tipo_rif salvato in DB) ha priorità sul parser
+        f.tipoRif = f.tipoRifOverride || parsed.tipo;
         f.salNum = parsed.salNum;
         f.extraId = parsed.extraId;
         f.ordine = parsed.ordine||null;
@@ -426,7 +427,9 @@ async function loadFromSupabase() {
     lordo: f.lordo||0, garanzia: 0, netto: f.lordo||0,
     stato: f.stato||'Aperta', note: f.note||'',
     commessa: null, commessaCodice: null, sal: null,
-    tipoRif: null, salNum: null, extraId: null, statoLink: 'NonAssegnata',
+    tipoRif: f.tipo_rif||null, // override manuale Acconto/SAL/Saldo/Garanzia
+    tipoRifOverride: f.tipo_rif||null,
+    salNum: null, extraId: null, statoLink: 'NonAssegnata',
     compGen: 0, compSub: 0,
   }));
   D.fatturePassive.splice(0);
@@ -440,6 +443,8 @@ async function loadFromSupabase() {
     compGen: 0, compSub: 0,
     netto: f.lordo||0,
     stato: f.stato||'Aperta', note: f.note||'',
+    tipoRif: f.tipo_rif||null,
+    tipoRifOverride: f.tipo_rif||null,
     commessa: null, commessaCodice: null, sal: null,
     tipoRif: null, salNum: null, extraId: null, statoLink: 'NonAssegnata',
   }));
