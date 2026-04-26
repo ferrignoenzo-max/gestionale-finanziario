@@ -235,18 +235,32 @@ const parseCodiceCommessa = (oggetto)=>{
 
 /* Calcola garanzia dinamicamente dalla config commessa */
 const calcolaGaranzia = (fattura, commessa)=>{
-  if(!commessa) return 0;
-  // Acconto: la garanzia si applica solo se commessa.garanzia.applicaSuAcconto = true
-  if(fattura.tipoRif==='Acconto' && !commessa.garanzia?.applicaSuAcconto) return 0;
-  // Se la commessa ha REGOLE DI PAGAMENTO con saldo/garanzia come milestone separate (es. Benetti)
-  const ms = commessa.regolePagamento?.milestone || [];
-  if(ms.length > 0) {
-    const hasMsSeparate = ms.some(m => m.tipo==='garanzia' || m.tipo==='saldo');
-    if(hasMsSeparate) return 0;
-  }
-  if(!commessa.garanzia) return 0;
-  if(commessa.garanzia.trattenutaSuFatture===false) return 0;
+  if(!commessa || !commessa.garanzia) return 0;
   const g = commessa.garanzia;
+  // Se l'utente ha esplicitamente DISATTIVATO la trattenuta su fatture, ritorna 0
+  if(g.trattenutaSuFatture===false) return 0;
+  // Acconto: trattenuta solo se applicaSuAcconto=true
+  if(fattura.tipoRif==='Acconto' && !g.applicaSuAcconto) return 0;
+  // Saldo/Garanzia: non applicare trattenuta su queste fatture (sono già lo svincolo)
+  if(fattura.tipoRif==='Saldo' || fattura.tipoRif==='Garanzia') return 0;
+  // ⚠ NIENTE garanzia su fatture EXTRA (fuori contratto base)
+  // - Se la fattura ha "EXTRA"/"BAP" nell'oggetto → è extra
+  // - Se ha un nrOrdine diverso da quello principale della commessa → è extra
+  const ogg = String(fattura.oggetto||'');
+  if(/\bextra\b|\bbap\b/i.test(ogg)) return 0;
+  if(commessa.nrOrdine) {
+    const ordRoot = (s)=>String(s||'').toUpperCase().replace(/\s+/g,'').split('/')[0];
+    const ordPrincipale = ordRoot(commessa.nrOrdine);
+    const m = ogg.match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i);
+    const ordF = m ? ordRoot(m[0]) : '';
+    if(ordF && ordF !== ordPrincipale) return 0; // ordine diverso = extra → no garanzia
+  }
+  // Se trattenutaSuFatture NON è esplicitamente true MA esistono milestone separate
+  // garanzia/saldo (caso legacy Benetti senza scelta esplicita), salta la trattenuta
+  if(g.trattenutaSuFatture!==true) {
+    const ms = commessa.regolePagamento?.milestone || [];
+    if(ms.length > 0 && ms.some(m => m.tipo==='garanzia' || m.tipo==='saldo')) return 0;
+  }
   if(g.tipo==='Percentuale') {
     const perc = parseFloat(g.val)||0;
     return Math.round((fattura.lordo||0) * perc / 100);
@@ -2218,6 +2232,13 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
   const salProdAttivoTotDyn = c.salProdAttivoTot && c.salProdAttivoTot>0
     ? c.salProdAttivoTot
     : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f)).reduce((a,f)=>a+_impOf(f),0);
+  // 🔐 GARANZIA MATURATA DINAMICA: somma garanzia trattenuta su tutte le fatture linkate a questa commessa
+  // (linkFatture ha già calcolato f.garanzia per ognuna applicando le regole di c.garanzia)
+  const fattureCommessa = D.fattureAttive.filter(f=>f.commessa===c.id);
+  const garanziaMaturataDyn = fattureCommessa.reduce((a,f)=>a+(parseFloat(f.garanzia)||0),0);
+  // Fatture saldo/svincolo già emesse → riducono il maturato
+  const garanziaSvincolataDyn = fattureCommessa.filter(f=>_isGaranzia(f)).reduce((a,f)=>a+_impOf(f),0);
+  const garanziaResiduaDyn = Math.max(0, garanziaMaturataDyn - garanziaSvincolataDyn);
   const salProdPct=c.importoContrattuale>0?Math.round((salProdAttivoTotDyn/c.importoContrattuale)*100):0;
   // Extra (fuori contratto base) = fatture EXTRA/BAP O ordini diversi dal principale
   const fattureExtraDyn = D.fattureAttive.filter(f=>f.commessa===c.id && (_isExtra(f) || !_isMainOrder(f)));
@@ -2355,7 +2376,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         <KPICard label="Da incassare netto" value={fmt(daInc)} color={T.green} onClick={()=>openModal('daIncassare')} />
         <KPICard label="Da pagare netto" value={fmt(daPag)} color={T.red} onClick={()=>openModal('daPagare')} />
         <KPICard label="Saldo commessa" value={fmt(saldo)} sub="Incassato – pagato" color={saldo>=0?T.blue:T.red} />
-        <KPICard label="Garanzia maturata" value={c.garanzia?fmt(c.garanzia.nonIncassata||c.garanzia.residuo):'Nessuna'} sub={c.garanzia?`Svincolo: ${fmtDate(c.garanzia.svincolo)}`:''}  color={T.amber} onClick={()=>openModal('garanzie')} />
+        <KPICard label="Garanzia maturata" value={c.garanzia?fmt(garanziaMaturataDyn):'Nessuna'} sub={c.garanzia?`Residua: ${fmt(garanziaResiduaDyn)} · Svincolo: ${fmtDate(c.garanzia.svincolo||c.garanzia.scadenzaContrattuale)||'—'}`:''} color={T.amber} onClick={()=>openModal('garanzie')} />
         {/* ⭐ Totale Fatturato Commessa + Extra — sostituisce lo spazio bianco accanto a Garanzia */}
         <div style={{background:'linear-gradient(135deg,#f0fdf4 0%,#faf5ff 100%)',borderRadius:10,padding:16,boxShadow:T.sh,borderLeft:`4px solid #0d9488`,gridColumn:'span 4',display:'flex',justifyContent:'space-between',alignItems:'center',gap:20}}>
           <div>
