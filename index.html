@@ -1917,6 +1917,7 @@ NON USARE MAI tipo="acconto" per Benetti.`;
             </div>
             <label style={lab}>Regola riassorbimento</label>
             <select value={accRegola} onChange={e=>setAccRegola(e.target.value)} style={inp}>
+              <option value="primo_sal">È il primo SAL — nessun recupero (Benetti)</option>
               <option value="su_ogni_sal">Su ogni SAL (proporzionale)</option>
               <option value="a_fine_lavori">A fine lavori (ultima fattura)</option>
               <option value="manuale">Manuale</option>
@@ -3725,7 +3726,8 @@ const calcBarreCommessa = (c)=>{
   const salRatio   = Math.min(1, salAbs / contr);          // SAL in [0,1]
   const salPct     = salRatio * 100;
   // Acconto residuo grafico: proporzionale, calcolato in tempo reale
-  const accontoImp   = c.acconto?.importo || 0;
+  // Se regola='primo_sal' (es. Benetti) → l'acconto è già un SAL, non c'è residuo da recuperare
+  const accontoImp   = c.acconto?.regola==='primo_sal' ? 0 : (c.acconto?.importo || 0);
   const accResGrafico = Math.max(0, accontoImp * (1 - salRatio));
   const fattProdAbs   = salAbs;                             // fatt. produttivo = SAL
   const fattTotAbs    = salAbs + accResGrafico;
@@ -4354,6 +4356,7 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                   </LabeledField>
                   <LabeledField label="Regola di recupero">
                     <select value={accRegola} onChange={e=>setAccRegola(e.target.value)} style={SI}>
+                      <option value="primo_sal">È il primo SAL — nessun recupero (Benetti)</option>
                       <option value="su_ogni_sal">Su ogni fattura/SAL con stessa percentuale</option>
                       <option value="unica">In unica soluzione (fine commessa)</option>
                       <option value="ultimo_sal">A fine commessa / ultimo SAL</option>
@@ -4464,7 +4467,7 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                 <>
                   <InfoRow label="Acconto" value={accTipo==='Percentuale'?`${accVal}% = ${fmt(accImporto)}`:fmt(accImporto)} color={T.purple}/>
                   <InfoRow label="⚠ Garanzia su acconto" value="NON applicata" color={T.amber}/>
-                  <InfoRow label="Recupero" value={{su_ogni_sal:'Su ogni SAL stessa %',unica:'In unica soluzione',ultimo_sal:'Ultimo SAL/fine commessa',personalizzata:'Personalizzata'}[accRegola]}/>
+                  <InfoRow label="Recupero" value={{primo_sal:'È il primo SAL (no recupero)',su_ogni_sal:'Su ogni SAL stessa %',unica:'In unica soluzione',ultimo_sal:'Ultimo SAL/fine commessa',personalizzata:'Personalizzata'}[accRegola]}/>
                 </>
               ):<InfoRow label="Acconto" value="Non configurato" color={T.textL}/>}
               {garActive?(
