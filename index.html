@@ -4068,20 +4068,15 @@ const PageNuovaCommessa = ({onNav, addCommessa, addTemplate, deleteTemplate})=>{
   const Steps = ['Dati base','Regole','Riepilogo','Conferma'];
 
   return (
-    <div style={{padding:24,maxWidth:820}}>
-      {/* Stepper */}
-      <div style={{display:'flex',gap:0,marginBottom:24}}>
-        {Steps.map((s,i)=>(
-          <div key={i} style={{flex:1,textAlign:'center',position:'relative'}}>
-            <div style={{width:28,height:28,borderRadius:'50%',background:step>i+1?T.green:step===i+1?T.blue:'#e2e8f0',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto',fontSize:12,fontWeight:700}}>{step>i+1?'✓':i+1}</div>
-            <div style={{fontSize:10,color:step===i+1?T.blue:T.textL,marginTop:4,fontWeight:step===i+1?600:400}}>{s}</div>
-            {i<Steps.length-1&&<div style={{position:'absolute',top:14,left:'55%',right:'-5%',height:2,background:step>i+1?T.green:T.border}}/>}
-          </div>
-        ))}
-      </div>
+    <div style={{padding:24,maxWidth:980}}>
+      {/* Indicatore: tutto in una pagina */}
+      {step!==4&&<div style={{display:'flex',gap:14,marginBottom:18,padding:'10px 14px',background:T.blueL,border:`1px solid #bfdbfe`,borderRadius:8,fontSize:12,color:T.blue,alignItems:'center'}}>
+        <span style={{fontSize:18}}>📝</span>
+        <div style={{flex:1}}><b>Compila tutto in una sola pagina</b><br/><span style={{fontSize:11}}>Dati base + Regole economiche + Riepilogo. Puoi caricare il PDF in fondo per auto-compilare con AI.</span></div>
+      </div>}
 
-      {/* ── STEP 1: Dati base ── */}
-      {step===1&&(
+      {/* ── STEP 1: Dati base — sempre visibile ── */}
+      {step!==4&&(
         <Card>
           <SectionTitle children="Dati Base"/>
           {/* Tipo lavoro */}
@@ -4307,15 +4302,12 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
               </label>
             )}
           </div>
-          <div style={{display:'flex',justifyContent:'flex-end',marginTop:16}}>
-            <Btn onClick={()=>setStep(2)} disabled={!codice||!cliente}>Avanti → Regole</Btn>
-          </div>
         </Card>
       )}
 
-      {/* ── STEP 2: Regole economiche ── */}
-      {step===2&&(
-        <Card>
+      {/* ── STEP 2: Regole economiche — sempre visibili ── */}
+      {step!==4&&(
+        <Card style={{marginTop:14}}>
           <SectionTitle children="Regole Economiche"/>
           <div style={{fontSize:12,color:T.textL,marginBottom:16}}>Abilita solo i blocchi che servono. I campi appaiono solo se la regola è attiva.</div>
 
@@ -4435,16 +4427,12 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
             </div>
           </div>
 
-          <div style={{display:'flex',justifyContent:'space-between',marginTop:8}}>
-            <Btn onClick={()=>setStep(1)} variant='outline'>← Indietro</Btn>
-            <Btn onClick={()=>setStep(3)}>Riepilogo →</Btn>
-          </div>
         </Card>
       )}
 
-      {/* ── STEP 3: Riepilogo ── */}
-      {step===3&&(
-        <Card>
+      {/* ── STEP 3: Riepilogo + Conferma — sempre visibile ── */}
+      {step!==4&&(
+        <Card style={{marginTop:14}}>
           <SectionTitle children="Riepilogo configurazione"/>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
             <div>
@@ -4477,9 +4465,8 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
               <InfoRow label="Compensazioni" value={compEnabled?'Abilitate':'Disabilitate'}/>
             </div>
           </div>
-          <div style={{display:'flex',justifyContent:'space-between'}}>
-            <Btn onClick={()=>setStep(2)} variant='outline'>← Modifica regole</Btn>
-            <Btn onClick={()=>{
+          <div style={{display:'flex',justifyContent:'flex-end'}}>
+            <Btn disabled={!codice||!cliente} onClick={()=>{
               // Recupera milestone AI estratte da PDF (se presenti)
               const aiMs = window._aiMilestonePending || [];
               const totPercAI = aiMs.reduce((a,m)=>a+(parseFloat(m.perc)||0),0);
