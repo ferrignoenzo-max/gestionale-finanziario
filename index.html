@@ -1809,11 +1809,13 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
   // Verifica se la fattura appartiene all'ordine principale della commessa
   // - Se la commessa ha nrOrdine: la fattura DEVE avere quel nrOrdine (ordini diversi = NO SAL)
   // - Se la commessa non ha nrOrdine: passa qualunque fattura con codice match
-  const _ordPrincipale = c.nrOrdine ? c.nrOrdine.toUpperCase().replace(/\s+/g,'') : '';
+  // Confronto flessibile sulla radice del numero ordine (ignora suffissi /APP, /AFS, /INV ecc.)
+  const _ordRoot = (s)=> String(s||'').toUpperCase().replace(/\s+/g,'').split('/')[0];
+  const _ordPrincipale = _ordRoot(c.nrOrdine||'');
   const _isMainOrder = (f) => {
     if(!_ordPrincipale) return true;
-    const ordF = _estraiOrdine(f.oggetto);
-    if(!ordF) return true; // fatture senza nr ordine identificabile passano (decisione: dubbio→include)
+    const ordF = _ordRoot(_estraiOrdine(f.oggetto));
+    if(!ordF) return true; // fatture senza nr ordine identificabile passano
     return ordF === _ordPrincipale;
   };
   const salProdAttivoTotDyn = c.salProdAttivoTot && c.salProdAttivoTot>0
@@ -1974,10 +1976,12 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
           const m = String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i);
           return m ? m[0].toUpperCase().replace(/\s+/g,'') : '';
         };
-        const ordPrincipale = c.nrOrdine ? c.nrOrdine.toUpperCase().replace(/\s+/g,'') : '';
+        // Confronto flessibile su radice (ignora /APP, /AFS, /INV)
+        const ordRoot = (s)=> String(s||'').toUpperCase().replace(/\s+/g,'').split('/')[0];
+        const ordPrincipale = ordRoot(c.nrOrdine||'');
         const isMainOrder = (f) => {
           if(!ordPrincipale) return true;
-          const ordF = estraiOrdine(f.oggetto);
+          const ordF = ordRoot(estraiOrdine(f.oggetto));
           if(!ordF) return true;
           return ordF === ordPrincipale;
         };
@@ -3139,8 +3143,9 @@ const calcBarreCommessa = (c)=>{
     const isSaldo = (f)=> f.tipoRifOverride==='Saldo' || /saldo|fine\s*lavori/i.test(f.oggetto||'');
     const isGaranzia = (f)=> f.tipoRifOverride==='Garanzia' || /garanzia|svincolo/i.test(f.oggetto||'');
     const impOf = (f)=> (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
-    const ordPrinc = c.nrOrdine ? c.nrOrdine.toUpperCase().replace(/\s+/g,'') : '';
-    const estrOrd = (s)=>{ if(!s) return ''; const m=String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i); return m?m[0].toUpperCase().replace(/\s+/g,''):''; };
+    const _root = (s)=> String(s||'').toUpperCase().replace(/\s+/g,'').split('/')[0];
+    const ordPrinc = _root(c.nrOrdine||'');
+    const estrOrd = (s)=>{ if(!s) return ''; const m=String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i); return m?_root(m[0]):''; };
     const isMainOrd = (f) => { if(!ordPrinc) return true; const o=estrOrd(f.oggetto); return !o || o===ordPrinc; };
     salAbs = D.fattureAttive.filter(f=>f.commessa===c.id && !isExtra(f) && !isSaldo(f) && !isGaranzia(f) && isMainOrd(f)).reduce((a,f)=>a+impOf(f),0);
   }
