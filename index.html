@@ -2116,34 +2116,58 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                     </div>
                   </div>
                   {/* Fatture collegate */}
-                  {fatts.length>0 ? (
-                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
-                      <thead>
-                        <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
-                          <th style={{padding:'6px 12px',textAlign:'left'}}>Num</th>
-                          <th style={{padding:'6px 12px',textAlign:'left'}}>Data</th>
-                          <th style={{padding:'6px 12px',textAlign:'left'}}>Scadenza</th>
-                          <th style={{padding:'6px 12px',textAlign:'right'}} title="Importo prestazione (esclude IVA/bollo) – conta per i calcoli SAL">Imponibile</th>
-                          <th style={{padding:'6px 12px',textAlign:'right'}} title="Imponibile + IVA + bollo (€2)">Lordo</th>
-                          <th style={{padding:'6px 12px',textAlign:'left'}}>Stato</th>
-                          <th style={{padding:'6px 12px',textAlign:'left'}}>Oggetto</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {fatts.sort((a,b)=>(a.data||'').localeCompare(b.data||'')).map(f=>(
-                          <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
-                            <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
-                            <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
-                            <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
-                            <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700,color:T.text}}>{fmt(impOf(f))}</td>
-                            <td style={{padding:'6px 12px',textAlign:'right',color:T.textL,fontSize:11}}>{fmt(f.lordo)}</td>
-                            <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
-                            <td style={{padding:'6px 12px',color:T.textL,fontSize:11,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.oggetto}</td>
+                  {fatts.length>0 ? (()=>{
+                    const sortedF = [...fatts].sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+                    let cum = 0;
+                    const rows = sortedF.map(f=>{
+                      const imp = impOf(f);
+                      const pctContratto = importoCommessa>0 ? (imp/importoCommessa*100) : 0;
+                      cum += pctContratto;
+                      return {f, imp, pctContratto, pctCum: cum};
+                    });
+                    return (
+                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                        <thead>
+                          <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                            <th style={{padding:'6px 12px',textAlign:'left'}}>Num</th>
+                            <th style={{padding:'6px 12px',textAlign:'left'}}>Data</th>
+                            <th style={{padding:'6px 12px',textAlign:'left'}}>Scadenza</th>
+                            <th style={{padding:'6px 12px',textAlign:'right'}} title="Importo prestazione (esclude IVA/bollo) – conta per i calcoli SAL">Imponibile</th>
+                            <th style={{padding:'6px 12px',textAlign:'right'}} title="% di questa fattura sul contratto totale">% Contr.</th>
+                            <th style={{padding:'6px 12px',textAlign:'right'}} title="Avanzamento cumulativo % sul contratto">% Cum.</th>
+                            <th style={{padding:'6px 12px',textAlign:'left'}}>Stato</th>
+                            <th style={{padding:'6px 12px',textAlign:'left'}}>Oggetto</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
+                        </thead>
+                        <tbody>
+                          {rows.map(({f,imp,pctContratto,pctCum})=>(
+                            <tr key={f.id} style={{borderTop:`1px solid ${T.border}`}}>
+                              <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
+                              <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
+                              <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
+                              <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700,color:T.text}}>{fmt(imp)}</td>
+                              <td style={{padding:'6px 12px',textAlign:'right',color:T.blue,fontWeight:600}}>{pctContratto.toFixed(2)}%</td>
+                              <td style={{padding:'6px 12px',textAlign:'right',color:T.green,fontWeight:700}}>{pctCum.toFixed(2)}%</td>
+                              <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
+                              <td style={{padding:'6px 12px',color:T.textL,fontSize:11,maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.oggetto}</td>
+                            </tr>
+                          ))}
+                          {/* Riga totale */}
+                          <tr style={{borderTop:`2px solid ${T.border}`,background:'#f8fafc'}}>
+                            <td colSpan={3} style={{padding:'8px 12px',fontWeight:700,color:T.textL,fontSize:11,textTransform:'uppercase'}}>
+                              Totale fatturato ({rows.length} fatture)
+                            </td>
+                            <td style={{padding:'8px 12px',textAlign:'right',fontWeight:800,color:T.text,fontSize:13}}>{fmt(rows.reduce((a,r)=>a+r.imp,0))}</td>
+                            <td colSpan={2} style={{padding:'8px 12px',textAlign:'right',fontWeight:800,color:T.green,fontSize:13}}>
+                              {cum.toFixed(2)}% del contratto
+                              {m.tipo==='sal' && <span style={{marginLeft:8,color:T.textL,fontWeight:400,fontSize:11}}>(milestone target: {m.perc}%)</span>}
+                            </td>
+                            <td colSpan={2}/>
+                          </tr>
+                        </tbody>
+                      </table>
+                    );
+                  })() : (
                     <div style={{padding:'14px 16px',color:T.textL,fontSize:12,textAlign:'center',fontStyle:'italic'}}>
                       Nessuna fattura associata a questa milestone (auto-detect su tipo/oggetto). Quando emetti una fattura il match avviene automaticamente.
                     </div>
