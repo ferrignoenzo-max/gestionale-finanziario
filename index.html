@@ -254,7 +254,21 @@ const calcolaGaranzia = (fattura, commessa)=>{
    La corrispondenza è sul campo commesse.codice (case-insensitive, normalizzato).  */
 const linkFatture = ()=>{
   const byCode = new Map();
-  D.commesse.forEach(c=>{ if(c.codice) byCode.set(normCodice(c.codice), c); });
+  const byOrdine = new Map(); // numero ordine cliente → commessa (univoco)
+  D.commesse.forEach(c=>{
+    if(c.codice) byCode.set(normCodice(c.codice), c);
+    if(c.nrOrdine) byOrdine.set(normCodice(c.nrOrdine), c);
+  });
+
+  /* Match per numero ordine: cerca nell'oggetto se c'è il nrOrdine di una commessa */
+  const matchByOrdine = (oggetto)=>{
+    if(!oggetto || byOrdine.size===0) return null;
+    const og = normCodice(oggetto);
+    for(const [nrOrd, comm] of byOrdine.entries()) {
+      if(nrOrd && og.includes(nrOrd)) return comm;
+    }
+    return null;
+  };
 
   /* Fuzzy match: se il codice esatto non c'è, prova match parziale.
      Ritorna {commessa, fuzzy:true} solo se UNICA candidata, altrimenti null. */
@@ -283,6 +297,19 @@ const linkFatture = ()=>{
 
   const applyOn = (arr)=>{
     arr.forEach(f=>{
+      // Priorità #0: match per numero ordine (univoco, manuale)
+      const cByOrd = matchByOrdine(f.oggetto);
+      if(cByOrd) {
+        f.commessa = cByOrd.id;
+        f.commessaCodice = cByOrd.codice;
+        f.statoLink = 'AssegnataOrdine';
+        f.linkFuzzy = false;
+        f.matchedBy = 'nrOrdine';
+        f.tipoRif = null; f.salNum = null; f.codiceMulti = null;
+        f.garanzia = calcolaGaranzia(f, cByOrd);
+        f.netto = Math.max(0, (f.lordo||0) - (f.garanzia||0) - (f.compGen||0) - (f.compSub||0));
+        return;
+      }
       const parsed = parseCodiceCommessa(f.oggetto);
       if(parsed) {
         let c = byCode.get(parsed.codice);
@@ -413,6 +440,7 @@ async function loadFromSupabase() {
   D.commesse.splice(0);
   commesse.forEach(c => D.commesse.push({
     id: c.id, codice: c.codice, nome: c.nome, cliente: c.cliente,
+    nrOrdine: c.nr_ordine||c.nrOrdine||null,
     tipoLavoro: c.tipo_lavoro||c.tipoLavoro||'Commessa',
     importoContrattuale: c.importo_contrattuale||c.importoContrattuale||0,
     stato: c.stato||'Attiva',
@@ -1398,6 +1426,7 @@ const PageWatchlist = ({onNav,openModal})=>{
 const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
   const c = commessa;
   const [nome,setNome]=useState(c.nome||'');
+  const [nrOrdine,setNrOrdine]=useState(c.nrOrdine||'');
   const [cliente,setCliente]=useState(c.cliente||'');
   const [tipoLavoro,setTipoLavoro]=useState(c.tipoLavoro||'Commessa');
   const [stato,setStato]=useState(c.stato||'Attiva');
@@ -1431,7 +1460,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
 
   const handleSave = ()=>{
     const patch = {
-      nome, cliente, tipoLavoro, stato,
+      nome, nrOrdine, cliente, tipoLavoro, stato,
       importoContrattuale: parseFloat(importo)||0,
       dataInizio: dataInizio||null,
       dataFine: dataFine||null,
@@ -1468,6 +1497,10 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
           <div style={{marginBottom:10}}>
             <label style={lab}>Nome / Descrizione</label>
             <input value={nome} onChange={e=>setNome(e.target.value)} style={inp} placeholder="Es. MY Atomic, Refit motore..."/>
+          </div>
+          <div style={{marginBottom:10}}>
+            <label style={lab}>N° Ordine cliente <span style={{textTransform:'none',fontWeight:400,color:T.textL}}>(univoco, può comparire in fattura)</span></label>
+            <input value={nrOrdine} onChange={e=>setNrOrdine(e.target.value)} style={inp} placeholder="es. MYOA24015011/APP, ORCA/2025/00511"/>
           </div>
           <div style={{marginBottom:10}}>
             <label style={lab}>Cliente</label>
@@ -2694,6 +2727,7 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
 
   // Step 1 – dati base
   const [codice,setCodice]=useState('');
+  const [nrOrdine,setNrOrdine]=useState('');  // Numero ordine cliente (es. MYOA24015011/APP, ORCA/2025/00511)
   const [nome,setNome]=useState('');
   const [cliente,setCliente]=useState('');
   const [madreId,setMadreId]=useState('');
@@ -2764,6 +2798,10 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
           </div>}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <LabeledField label="Codice *"><input value={codice} onChange={e=>setCodice(e.target.value)} placeholder="Codice commessa" style={SI}/></LabeledField>
+            <LabeledField label="N° Ordine cliente">
+              <input value={nrOrdine} onChange={e=>setNrOrdine(e.target.value)}
+                placeholder="es. MYOA24015011/APP, ORCA/2025/00511" style={SI}/>
+            </LabeledField>
             <LabeledField label="Cliente / Committente *">
               <select value={cliente} onChange={e=>setCliente(e.target.value)} style={SI}>
                 <option value="">— Seleziona —</option>
@@ -2996,7 +3034,7 @@ const PageNuovaCommessa = ({onNav, addCommessa})=>{
             <Btn onClick={()=>{
               const nuova = {
                 id: `C${Date.now()}`,
-                codice, nome, cliente,
+                codice, nrOrdine, nome, cliente,
                 tipoLavoro: tipo,
                 importoContrattuale: impN,
                 stato: 'Attiva',
@@ -6044,6 +6082,7 @@ const App = ()=>{
     try {
       const payload = {
         id: c.id, codice: c.codice, nome: c.nome, cliente: c.cliente,
+        nr_ordine: c.nrOrdine||null,
         tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale,
         stato: c.stato, data_inizio: c.dataInizio, data_fine: c.dataFine,
         fatt_mode: c.fattMode, pag_mode: c.pagMode,
@@ -6071,6 +6110,7 @@ const App = ()=>{
       const c = D.commesse[i];
       const payload = {
         codice: c.codice, nome: c.nome, cliente: c.cliente,
+        nr_ordine: c.nrOrdine||null,
         tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale,
         stato: c.stato, data_inizio: c.dataInizio, data_fine: c.dataFine,
         fatt_mode: c.fattMode, pag_mode: c.pagMode,
