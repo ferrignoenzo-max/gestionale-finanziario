@@ -490,6 +490,8 @@ async function loadFromSupabase() {
   // LINK DINAMICO: collega ogni fattura alla commessa giusta via oggetto
   linkFatture();
   ricalcolaKPI();
+  // Esponi le commesse ricevute per check d'integrità lato App (vedi useEffect Avviso)
+  window._dbCommesseIds = new Set(commesse.map(c=>c.id));
 }
 
 /* Persiste su Supabase i link commessa_id/commessa_codice per le fatture che linkFatture ha agganciato.
@@ -1691,8 +1693,16 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
         nonIncassata:c.garanzia?.nonIncassata||0
       } : null,
     };
-    updateCommessa(c.id, patch);
-    onClose();
+    // Save bloccante: se Supabase rifiuta, l'alert viene mostrato da updateCommessa e la modale resta aperta
+    (async ()=>{
+      try {
+        await updateCommessa(c.id, patch);
+        onClose();
+      } catch(e) {
+        console.error('Update commessa fallito:', e);
+        // modale resta aperta — l'utente vede l'alert e può ritentare
+      }
+    })();
   };
 
   return (
@@ -4746,11 +4756,12 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                     onNav('watchlist');
                   }
                 }}>✕ Annulla</Btn>
-                <Btn disabled={blocked||hasWarn} onClick={()=>{
+                <Btn disabled={blocked||hasWarn} onClick={async ()=>{
                   // Recupera milestone AI estratte da PDF (se presenti)
                   const aiMsLocal = window._aiMilestonePending || [];
                   const totPercAI = aiMsLocal.reduce((a,m)=>a+(parseFloat(m.perc)||0),0);
                   const nuova = {
+                    // id verrà sovrascritto dall'UUID restituito da Supabase in addCommessa
                     id: `C${Date.now()}`,
                     codice, nrOrdine, nome, cliente,
                     tipoLavoro: tipo,
@@ -4773,11 +4784,16 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
                     skipFlags: { importo:skipImporto, nrOrdine:skipNrOrdine, regole:skipRegole },
                     _nuova: true,
                   };
-                  // Il push è fatto da addCommessa (in App) — non pushiamo qui
-                  if(addCommessa) addCommessa(nuova);
-                  window._aiMilestonePending = null; // reset per la prossima volta
-                  setNuovaCreata(nuova);
-                  setStep(4);
+                  // addCommessa ora è BLOCCANTE: lancia se Supabase rifiuta
+                  try {
+                    if(addCommessa) await addCommessa(nuova);
+                    window._aiMilestonePending = null; // reset per la prossima volta
+                    setNuovaCreata(nuova);
+                    setStep(4);
+                  } catch(err) {
+                    // L'alert è già stato mostrato da addCommessa, qui non avanziamo allo step 4
+                    console.error('Creazione commessa fallita:', err);
+                  }
                 }}>{blocked?'⛔ Risolvi errori':hasWarn?'⚠ Conferma dati mancanti':'✓ Conferma creazione'}</Btn>
               </div>
             </>);
@@ -8056,31 +8072,55 @@ const App = ()=>{
   const openModal = useCallback((type,data)=>setModal({type,data}),[]);
   const closeModal = useCallback(()=>setModal(null),[]);
 
+  /* CREA commessa: persistenza Supabase BLOCCANTE.
+     Se Supabase rifiuta (es. UUID mismatch, RLS, vincoli) la commessa NON viene aggiunta in memoria
+     e l'utente vede un alert chiaro con il dettaglio dell'errore. Niente più "creata in sessione" silenzioso. */
   const addCommessa = useCallback(async c=>{
+    // NB: NON inviamo c.id (timestamp 'C123...') perché la colonna id è UUID — lasciamo che Supabase generi.
+    const payload = {
+      codice: c.codice, nome: c.nome, cliente: c.cliente,
+      nr_ordine: c.nrOrdine||null,
+      tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale||0,
+      stato: c.stato||'Attiva', data_inizio: c.dataInizio||null, data_fine: c.dataFine||null,
+      fatt_mode: c.fattMode, pag_mode: c.pagMode,
+      madre_id: c.madreId||null, autonomo: c.autonomo||null,
+      acconto: c.acconto, garanzia: c.garanzia,
+      comp_enabled: c.compEnabled||false,
+      regole_pagamento: c.regolePagamento||null,
+      documenti: c.documenti||[],
+    };
+    let saved = null;
+    let errMsg = null;
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/commesse`,{
+        method:'POST',
+        headers:{...SB_H_WRITE, Prefer:'return=representation'},
+        body: JSON.stringify(payload),
+      });
+      if(!r.ok) {
+        const txt = await r.text();
+        errMsg = `Supabase ha rifiutato il salvataggio (HTTP ${r.status}): ${txt.slice(0,400)}`;
+      } else {
+        const arr = await r.json();
+        saved = Array.isArray(arr) ? arr[0] : arr;
+      }
+    } catch(err) {
+      errMsg = `Errore di rete durante il salvataggio: ${err.message}`;
+    }
+    if(errMsg || !saved) {
+      // ⛔ NON aggiungere in memoria — la commessa NON esiste su Supabase
+      alert(`❌ Impossibile salvare la commessa "${c.codice}".\n\n${errMsg||'Risposta vuota da Supabase'}\n\nLa commessa NON è stata creata. Riprova o segnala l'errore.`);
+      throw new Error(errMsg||'Save failed');
+    }
+    // ✅ Supabase ha accettato e restituito la riga con UUID generato — usalo come id ufficiale
+    c.id = saved.id;
     D.commesse.push(c);
-    // re-link di tutte le fatture: quelle "InAttesa" con codice c.codice ora si agganciano
     linkFatture();
     ricalcolaKPI();
     bumpData();
-    // Persistenza asincrona su Supabase (tollera fallimento se tabella commesse non esiste ancora)
-    try {
-      const payload = {
-        id: c.id, codice: c.codice, nome: c.nome, cliente: c.cliente,
-        nr_ordine: c.nrOrdine||null,
-        tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale,
-        stato: c.stato, data_inizio: c.dataInizio, data_fine: c.dataFine,
-        fatt_mode: c.fattMode, pag_mode: c.pagMode,
-        madre_id: c.madreId, autonomo: c.autonomo,
-        acconto: c.acconto, garanzia: c.garanzia,
-        comp_enabled: c.compEnabled,
-        regole_pagamento: c.regolePagamento||null,
-        documenti: c.documenti||[],
-      };
-      await fetch(`${SB_URL}/rest/v1/commesse`,{
-        method:'POST', headers: SB_H_WRITE, body: JSON.stringify(payload),
-      });
-    } catch(err) {
-      console.warn('Commessa salvata solo in sessione (tabella commesse non ancora disponibile):', err.message);
+    // Persisti anche i link delle fatture appena agganciate via codice
+    if(typeof window.persistLinkMatches === 'function') {
+      try { await window.persistLinkMatches(); } catch(e) {}
     }
   },[bumpData]);
 
@@ -8140,33 +8180,49 @@ const App = ()=>{
     } catch(err){ console.warn('Delete MP solo in sessione:', err.message); }
   },[bumpData]);
 
-  /* Aggiorna una commessa esistente: merge campi + persistenza su Supabase via PATCH */
+  /* Aggiorna una commessa esistente: persistenza BLOCCANTE.
+     Se Supabase fallisce, fa rollback delle modifiche in memoria e alert all'utente. */
   const updateCommessa = useCallback(async (id, patch)=>{
     const i = D.commesse.findIndex(c=>c.id===id);
     if(i<0) return;
+    const prev = {...D.commesse[i]}; // snapshot per rollback
     Object.assign(D.commesse[i], patch);
     linkFatture();
     ricalcolaKPI();
     bumpData();
+    let errMsg = null;
     try {
       const c = D.commesse[i];
       const payload = {
         codice: c.codice, nome: c.nome, cliente: c.cliente,
         nr_ordine: c.nrOrdine||null,
-        tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale,
-        stato: c.stato, data_inizio: c.dataInizio, data_fine: c.dataFine,
+        tipo_lavoro: c.tipoLavoro, importo_contrattuale: c.importoContrattuale||0,
+        stato: c.stato||'Attiva', data_inizio: c.dataInizio||null, data_fine: c.dataFine||null,
         fatt_mode: c.fattMode, pag_mode: c.pagMode,
-        madre_id: c.madreId, autonomo: c.autonomo,
+        madre_id: c.madreId||null, autonomo: c.autonomo||null,
         acconto: c.acconto, garanzia: c.garanzia,
-        comp_enabled: c.compEnabled,
+        comp_enabled: c.compEnabled||false,
         regole_pagamento: c.regolePagamento||null,
         documenti: c.documenti||[],
       };
-      await fetch(`${SB_URL}/rest/v1/commesse?id=eq.${id}`, {
+      const r = await fetch(`${SB_URL}/rest/v1/commesse?id=eq.${id}`, {
         method:'PATCH', headers: SB_H_WRITE, body: JSON.stringify(payload),
       });
+      if(!r.ok) {
+        const txt = await r.text();
+        errMsg = `HTTP ${r.status}: ${txt.slice(0,400)}`;
+      }
     } catch(err) {
-      console.warn('Update commessa solo in sessione:', err.message);
+      errMsg = err.message;
+    }
+    if(errMsg) {
+      // ROLLBACK: ripristina lo stato precedente in memoria
+      D.commesse[i] = prev;
+      linkFatture();
+      ricalcolaKPI();
+      bumpData();
+      alert(`❌ Impossibile aggiornare la commessa "${prev.codice}".\n\n${errMsg}\n\nLe modifiche sono state annullate.`);
+      throw new Error(errMsg);
     }
   },[bumpData]);
 
