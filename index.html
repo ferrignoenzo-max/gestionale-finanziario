@@ -1808,7 +1808,12 @@ Analizza il PDF allegato e restituisci SOLO un JSON valido (niente markdown, nie
   "note_estrazione": "1 frase con quanto sei sicuro dei dati e cosa potrebbe mancare"
 }
 
-Esempio output per un Benetti standard (10/84/3/3): le milestone sono 4, l'ultima ha fideiussione_alt_perc=5 mesi=12.`;
+REGOLA IMPORTANTE per Benetti: il 10% iniziale NON è un acconto da recuperare, è un SAL pagato a inizio lavori. Quindi mappa:
+ - 10% inizio lavori → tipo="sal", titolo="10% SAL iniziale", trigger="inizio_lavori"
+ - 84% SAL mensili → tipo="sal", trigger="sal_mensile"
+ - 3% fine lavori → tipo="saldo", trigger="fine_lavori"
+ - 3% dopo X mesi → tipo="garanzia", trigger="x_mesi_dopo_fine", triggerExtra="X" (X = mesi reali del contratto, di solito 6 o 12)
+NON USARE MAI tipo="acconto" per Benetti.`;
 
                 const model = localStorage.getItem('gemini_model') || 'gemini-2.5-flash';
                 try {
@@ -4167,7 +4172,12 @@ REGOLE FONDAMENTALI:
 2. Se il PDF ha un valore come BX103/BX104/BX105/BX106/BX107/BMP/BXL → cliente è "AZIMUT-BENETTI SPA".
 3. Se ci sono codici tipo SLA/SLM/XSP o numerici 5 cifre → cliente è "SANLORENZO S.P.A. IN SIGLA SL S.P.A." (o "SAN LORENZO SPA").
 4. Se ci sono codici 600/606/614/617/598 → cliente è "THE ITALIAN SEA GROUP SPA".
-5. Per le milestone Benetti standard: 10% acconto + 84% SAL mensili + 3% saldo fine lavori + 3% garanzia 12 mesi.
+5. IMPORTANTE per Benetti: il 10% iniziale NON è un acconto da recuperare. È un SAL pagato a inizio lavori. Quindi mappa SEMPRE:
+   - 10% inizio lavori → tipo="sal", titolo="10% SAL iniziale", trigger="inizio_lavori"
+   - 84% SAL mensili → tipo="sal", titolo="SAL mensili", trigger="sal_mensile"
+   - 3% fine lavori → tipo="saldo", titolo="Saldo a fine lavori", trigger="fine_lavori"
+   - 3% dopo X mesi → tipo="garanzia", titolo="Garanzia X mesi", trigger="x_mesi_dopo_fine", triggerExtra="X" (X = numero mesi che leggi nel contratto, di solito 6 o 12)
+   NON USARE MAI tipo="acconto" per Benetti — non c'è recupero acconto.
 
 CLIENTI ESISTENTI IN ANAGRAFICA (preferisci uno di questi):
 ${clientiAnagrafica.join(', ')}
