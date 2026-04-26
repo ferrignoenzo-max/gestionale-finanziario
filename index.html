@@ -3267,6 +3267,7 @@ const PageFattureAttive = ({onNav,openModal})=>{
   const [filtImpMin,setFiltImpMin]=useState('');
   const [filtImpMax,setFiltImpMax]=useState('');
   const [filtStato,setFiltStato]=useState('');
+  const [filtConGar,setFiltConGar]=useState(false);
   const [expanded,setExpanded]=useState(null);
 
   const base = soloAperte ? D.fattureAttive.filter(f=>f.stato!=='Incassata') : D.fattureAttive;
@@ -3277,6 +3278,7 @@ const PageFattureAttive = ({onNav,openModal})=>{
     if(filtImpMin&&f.lordo<parseFloat(filtImpMin)) return false;
     if(filtImpMax&&f.lordo>parseFloat(filtImpMax)) return false;
     if(filtStato&&f.stato!==filtStato) return false;
+    if(filtConGar && (parseFloat(f.garanzia)||0)<=0) return false;
     return true;
   });
 
@@ -3305,7 +3307,11 @@ const PageFattureAttive = ({onNav,openModal})=>{
             <span style={{fontSize:12,color:T.textL}}>Sola lettura – Fatture in Cloud</span>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
-            {hasFilter&&<Btn variant='outline' size='sm' onClick={()=>{setFiltTxt('');setFiltDa('');setFiltA('');setFiltImpMin('');setFiltImpMax('');setFiltStato('');}}>✕ Azzera filtri</Btn>}
+            <label style={{display:'flex',alignItems:'center',gap:6,fontSize:12,cursor:'pointer',padding:'4px 10px',background:filtConGar?T.amberL:'#fff',border:`1px solid ${filtConGar?T.amber:T.border}`,borderRadius:6,color:filtConGar?'#92400e':T.text,fontWeight:filtConGar?600:400}}>
+              <input type="checkbox" checked={filtConGar} onChange={e=>setFiltConGar(e.target.checked)} style={{accentColor:T.amber}}/>
+              🔐 Solo con garanzia
+            </label>
+            {hasFilter&&<Btn variant='outline' size='sm' onClick={()=>{setFiltTxt('');setFiltDa('');setFiltA('');setFiltImpMin('');setFiltImpMax('');setFiltStato('');setFiltConGar(false);}}>✕ Azzera filtri</Btn>}
             <ViewToggle solo={soloAperte} onChange={setSoloAperte}/>
           </div>
         </div>
@@ -6599,34 +6605,105 @@ const ModalContent = ({type,data,onClose})=>{
     );
   };
 
-  const ModalGar = ()=>(
-    <Modal title="Garanzie – Dettaglio completo" onClose={onClose} width={800}>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
-        <div style={{background:T.amberL,borderRadius:8,padding:12}}>
-          <div style={{fontSize:11,color:T.textL}}>Garanzie attive totali</div>
-          <div style={{fontWeight:700,fontSize:20,color:T.amber}}>{fmt(KPI.garanzieTotale)}</div>
+  const ModalGar = ()=>{
+    // 🔐 Costruisce l'elenco delle garanzie DINAMICAMENTE dalle fatture
+    // Per ogni fattura con f.garanzia > 0 → 1 riga di dettaglio
+    // Aggregato per commessa nella sezione superiore
+    const oggi = new Date();
+    const isExtra = (f)=> /\bextra\b|\bbap\b/i.test(f.oggetto||'');
+    const righe = [];
+    const aggrCommessa = new Map(); // commessaId → {codice, cliente, tot, count, svincolo, statoCommessa}
+    D.commesse.forEach(c=>{
+      if(!c.garanzia) return;
+      const fattureC = D.fattureAttive.filter(f=>f.commessa===c.id && (parseFloat(f.garanzia)||0)>0);
+      if(!fattureC.length) return;
+      let totMat = 0;
+      fattureC.forEach(f=>{
+        const g = parseFloat(f.garanzia)||0;
+        totMat += g;
+        const svinc = c.garanzia.svincolo || c.garanzia.scadenzaContrattuale || null;
+        const scaduta = svinc ? new Date(svinc) < oggi : false;
+        righe.push({
+          id: f.id+'-gar',
+          commessa: c.codice,
+          cliente: c.cliente,
+          fatturaNum: f.num,
+          fatturaData: f.data,
+          fatturaLordo: parseFloat(f.lordo)||0,
+          garanzia: g,
+          perc: c.garanzia.tipo==='Percentuale' ? (parseFloat(c.garanzia.val)||0) : null,
+          svincolo: svinc,
+          stato: scaduta ? 'Svincolabile' : 'Maturata'
+        });
+      });
+      const svinc = c.garanzia.svincolo || c.garanzia.scadenzaContrattuale || null;
+      aggrCommessa.set(c.id, { codice:c.codice, cliente:c.cliente, tot:totMat, count:fattureC.length, svincolo:svinc, perc: c.garanzia.tipo==='Percentuale' ? (parseFloat(c.garanzia.val)||0) : null });
+    });
+    const totMaturate = righe.reduce((a,r)=>a+r.garanzia,0);
+    return (
+      <Modal title="Garanzie – Dettaglio completo" onClose={onClose} width={950}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:16}}>
+          <div style={{background:T.amberL,borderRadius:8,padding:12}}>
+            <div style={{fontSize:11,color:T.textL}}>Garanzie maturate totali</div>
+            <div style={{fontWeight:700,fontSize:20,color:T.amber}}>{fmt(totMaturate)}</div>
+            <div style={{fontSize:10,color:T.textL,marginTop:2}}>{righe.length} fatture · {aggrCommessa.size} commesse</div>
+          </div>
+          <div style={{background:'#fef2f2',borderRadius:8,padding:12}}>
+            <div style={{fontSize:11,color:T.textL}}>Svincolabili (data svincolo passata)</div>
+            <div style={{fontWeight:700,fontSize:20,color:T.red}}>{fmt(righe.filter(r=>r.stato==='Svincolabile').reduce((a,r)=>a+r.garanzia,0))}</div>
+            <div style={{fontSize:10,color:T.textL,marginTop:2}}>{righe.filter(r=>r.stato==='Svincolabile').length} fatture pronte</div>
+          </div>
+          <div style={{background:'#f0fdf4',borderRadius:8,padding:12}}>
+            <div style={{fontSize:11,color:T.textL}}>In maturazione</div>
+            <div style={{fontWeight:700,fontSize:20,color:T.green}}>{fmt(righe.filter(r=>r.stato==='Maturata').reduce((a,r)=>a+r.garanzia,0))}</div>
+            <div style={{fontSize:10,color:T.textL,marginTop:2}}>{righe.filter(r=>r.stato==='Maturata').length} fatture</div>
+          </div>
         </div>
-        <div style={{background:'#f1f5f9',borderRadius:8,padding:12}}>
-          <div style={{fontSize:11,color:T.textL}}>Garanzie passive totali</div>
-          <div style={{fontWeight:700,fontSize:20,color:T.textL}}>{fmt(KPI.garanziePassive)}</div>
-        </div>
-      </div>
-      <Table headers={[{label:'Riferimento'},{label:'Tipo'},{label:'Origine'},{label:'Imp. orig.',right:true},{label:'Residuo',right:true},{label:'%'},{label:'Svincolo'},{label:'Stato'}]}>
-        {D.garanzie.map(g=>(
-          <tr key={g.id} style={{background:g.stato==='In scadenza'?T.amberL:'transparent'}}>
-            <Td>{g.nome}</Td>
-            <Td><span style={{color:g.tipo==='Attiva'?T.green:T.red,fontWeight:600}}>{g.tipo}</span></Td>
-            <Td><Badge text={g.origine}/></Td>
-            <Td right>{fmt(g.origImporto)}</Td>
-            <Td right bold color={T.amber}>{fmt(g.residuo)}</Td>
-            <Td>{g.perc}%</Td>
-            <Td nowrap>{fmtDate(g.svincolo)}</Td>
-            <Td><Badge text={g.stato}/></Td>
-          </tr>
-        ))}
-      </Table>
-    </Modal>
-  );
+
+        {/* AGGREGATO PER COMMESSA */}
+        {aggrCommessa.size>0 && (
+          <div style={{marginBottom:18}}>
+            <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:T.text}}>📊 Aggregato per commessa</div>
+            <Table headers={[{label:'Commessa'},{label:'Cliente'},{label:'Fatture',right:true},{label:'%'},{label:'Garanzia matur.',right:true},{label:'Svincolo'}]}>
+              {[...aggrCommessa.values()].sort((a,b)=>b.tot-a.tot).map(r=>(
+                <tr key={r.codice}>
+                  <Td bold color={T.blue}>{r.codice}</Td>
+                  <Td>{r.cliente}</Td>
+                  <Td right>{r.count}</Td>
+                  <Td>{r.perc?r.perc+'%':'—'}</Td>
+                  <Td right bold color={T.amber}>{fmt(r.tot)}</Td>
+                  <Td nowrap>{fmtDate(r.svincolo)||'—'}</Td>
+                </tr>
+              ))}
+            </Table>
+          </div>
+        )}
+
+        {/* DETTAGLIO PER FATTURA */}
+        <div style={{fontWeight:700,fontSize:13,marginBottom:8,color:T.text}}>📋 Dettaglio per fattura</div>
+        {righe.length===0 ? (
+          <div style={{padding:24,textAlign:'center',color:T.textL,background:'#f8fafc',borderRadius:8,fontSize:13}}>
+            Nessuna garanzia maturata. Per averne, una commessa deve avere la garanzia attiva con "Trattenuta su fattura" e fatture SAL contratto già emesse.
+          </div>
+        ) : (
+          <Table headers={[{label:'Commessa'},{label:'Fattura'},{label:'Data'},{label:'Imp. fattura',right:true},{label:'%'},{label:'Garanzia',right:true},{label:'Svincolo'},{label:'Stato'}]}>
+            {righe.sort((a,b)=>(a.fatturaData||'').localeCompare(b.fatturaData||'')).map(r=>(
+              <tr key={r.id} style={{background:r.stato==='Svincolabile'?'#fef2f2':'transparent'}}>
+                <Td bold color={T.blue}>{r.commessa}</Td>
+                <Td>n° {r.fatturaNum}</Td>
+                <Td nowrap>{fmtDate(r.fatturaData)}</Td>
+                <Td right>{fmt(r.fatturaLordo)}</Td>
+                <Td>{r.perc?r.perc+'%':'—'}</Td>
+                <Td right bold color={T.amber}>{fmt(r.garanzia)}</Td>
+                <Td nowrap>{fmtDate(r.svincolo)||'—'}</Td>
+                <Td><Badge text={r.stato==='Svincolabile'?'svincolabile':'maturata'}/></Td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Modal>
+    );
+  };
 
   const ModalAcc = ()=>(
     <Modal title="Acconti – Dettaglio e residui" onClose={onClose} width={750}>
