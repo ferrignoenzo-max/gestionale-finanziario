@@ -1892,8 +1892,11 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
       {tab==='pagamenti'&&(()=>{
         const ms = c.regolePagamento?.milestone || [];
         const fattAttive = D.fattureAttive.filter(f=>f.commessa===c.id);
-        const totFatt = fattAttive.reduce((a,f)=>a+(f.lordo||0),0);
-        const totIncassato = fattAttive.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+(f.lordo||0),0);
+        // Imponibile esclude IVA e bollo. Lordo = imponibile + IVA + bollo (~2€)
+        // Per i calcoli avanzamento usiamo l'imponibile (vero ammontare prestazione)
+        const impOf = (f) => (f.imponibile && f.imponibile>0) ? f.imponibile : (f.lordo||0);
+        const totFatt = fattAttive.reduce((a,f)=>a+impOf(f),0);
+        const totIncassato = fattAttive.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+impOf(f),0);
         const importoCommessa = c.importoContrattuale||0;
 
         // Match euristico: associa fatture a milestone in base al tipoRif/oggetto
@@ -1958,8 +1961,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
             ) : ms.map((m,i)=>{
               const importoMs = (importoCommessa * (parseFloat(m.perc)||0)) / 100;
               const fatts = fattureMS(m);
-              const fattLordo = fatts.reduce((a,f)=>a+(f.lordo||0),0);
-              const fattIncas = fatts.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+(f.lordo||0),0);
+              // Usa imponibile per matching milestone (esclude bollo/IVA)
+              const fattLordo = fatts.reduce((a,f)=>a+impOf(f),0);
+              const fattIncas = fatts.filter(f=>f.stato==='Incassata'||f.stato==='Pagata').reduce((a,f)=>a+impOf(f),0);
               const pctCop = importoMs>0?Math.round(fattLordo/importoMs*100):0;
               const stato = pctCop===0 ? 'Da fatturare' : pctCop>=99 ? (fattIncas>=fattLordo ? 'Pagata' : 'Fatturata') : 'In corso';
               const statoColor = stato==='Pagata' ? T.green : stato==='Fatturata' ? T.blue : stato==='In corso' ? T.amber : T.textL;
@@ -2005,8 +2009,8 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                           <th style={{padding:'6px 12px',textAlign:'left'}}>Num</th>
                           <th style={{padding:'6px 12px',textAlign:'left'}}>Data</th>
                           <th style={{padding:'6px 12px',textAlign:'left'}}>Scadenza</th>
-                          <th style={{padding:'6px 12px',textAlign:'right'}}>Lordo</th>
-                          <th style={{padding:'6px 12px',textAlign:'right'}}>Netto</th>
+                          <th style={{padding:'6px 12px',textAlign:'right'}} title="Importo prestazione (esclude IVA/bollo) – conta per i calcoli SAL">Imponibile</th>
+                          <th style={{padding:'6px 12px',textAlign:'right'}} title="Imponibile + IVA + bollo (€2)">Lordo</th>
                           <th style={{padding:'6px 12px',textAlign:'left'}}>Stato</th>
                           <th style={{padding:'6px 12px',textAlign:'left'}}>Oggetto</th>
                         </tr>
@@ -2017,8 +2021,8 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                             <td style={{padding:'6px 12px',fontFamily:'monospace',fontWeight:600}}>{f.num}</td>
                             <td style={{padding:'6px 12px'}}>{fmtDate(f.data)}</td>
                             <td style={{padding:'6px 12px',color:f.stato==='Scaduta'?T.red:T.text}}>{fmtDate(f.scadenza)||'—'}</td>
-                            <td style={{padding:'6px 12px',textAlign:'right',fontWeight:600}}>{fmt(f.lordo)}</td>
-                            <td style={{padding:'6px 12px',textAlign:'right',color:T.green}}>{fmt(f.netto||f.lordo)}</td>
+                            <td style={{padding:'6px 12px',textAlign:'right',fontWeight:700,color:T.text}}>{fmt(impOf(f))}</td>
+                            <td style={{padding:'6px 12px',textAlign:'right',color:T.textL,fontSize:11}}>{fmt(f.lordo)}</td>
                             <td style={{padding:'6px 12px'}}><Badge text={f.stato}/></td>
                             <td style={{padding:'6px 12px',color:T.textL,fontSize:11,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{f.oggetto}</td>
                           </tr>
