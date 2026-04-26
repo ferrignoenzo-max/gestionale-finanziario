@@ -3134,7 +3134,9 @@ const calcBarreCommessa = (c)=>{
   // Fatturato grafico = SAL produttivo + acconto residuo grafico
   // Garanzia: trattenuta sul pagamento, NON entra nelle barre.
   // ─────────────────────────────────────────────────────────────────
-  const contr      = Number(c.importoContrattuale) || 1;
+  // Importo reale contratto (solo > 0, altrimenti niente percentuali)
+  const contrReale = Number(c.importoContrattuale) || 0;
+  const contr      = contrReale > 0 ? contrReale : 1; // divisore per evitare /0
   // SAL produttivo dinamico: se c.salProdAttivoTot non popolato, calcolalo dalle fatture
   // (acconto + SAL fatturati, escludendo extra/saldo/garanzia/altri ordini)
   let salAbs = Number(c.salProdAttivoTot) || 0;
@@ -3148,6 +3150,12 @@ const calcBarreCommessa = (c)=>{
     const estrOrd = (s)=>{ if(!s) return ''; const m=String(s).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i); return m?_root(m[0]):''; };
     const isMainOrd = (f) => { if(!ordPrinc) return true; const o=estrOrd(f.oggetto); return !o || o===ordPrinc; };
     salAbs = D.fattureAttive.filter(f=>f.commessa===c.id && !isExtra(f) && !isSaldo(f) && !isGaranzia(f) && isMainOrd(f)).reduce((a,f)=>a+impOf(f),0);
+  }
+  // Se importo contratto non valorizzato (commesse [auto] o non ancora compilate)
+  // mostra 0% – non saturare al 100% solo perché il divisore è fittizio
+  if(contrReale<=0) {
+    return { salPct:0, fattProdPct:0, accResPct:0, fattTotPct:0,
+             salAbs, accResAbs:0, fattProdAbs:salAbs, fattTotAbs:salAbs };
   }
   const salRatio   = Math.min(1, salAbs / contr);          // SAL in [0,1]
   const salPct     = salRatio * 100;
