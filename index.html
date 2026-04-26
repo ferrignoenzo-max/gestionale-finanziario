@@ -70,6 +70,7 @@ anagrafica:[],
 noteCredito:[],
 movimentiBancari:[],
 modalitaPagamento:[],
+templateRegole:[],
 };
 
 /* ─── COMPUTED KPIs ──────────────────────────────────────── */
@@ -404,18 +405,25 @@ const ricalcolaKPI = ()=>{
 async function loadFromSupabase() {
   // Fetch con tolleranza 404 (tabella commesse potrebbe non esistere ancora)
   const safeFetch = async (url)=>{ try { const r = await fetch(url,{headers:SB_H}); return r.ok?await r.json():[]; } catch { return []; } };
-  const [attive, passive, ana, commesse, modPag] = await Promise.all([
+  const [attive, passive, ana, commesse, modPag, tplReg] = await Promise.all([
     safeFetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=data.desc`),
     safeFetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=data.desc`),
     safeFetch(`${SB_URL}/rest/v1/anagrafica?select=*&order=nome.asc`),
     safeFetch(`${SB_URL}/rest/v1/commesse?select=*&order=codice.asc`),
     safeFetch(`${SB_URL}/rest/v1/modalita_pagamento?select=*&order=nome.asc`),
+    safeFetch(`${SB_URL}/rest/v1/template_regole_pagamento?select=*&order=nome.asc`),
   ]);
   if(!D.modalitaPagamento) D.modalitaPagamento = [];
   D.modalitaPagamento.splice(0);
   modPag.forEach(m=>D.modalitaPagamento.push({
     id:m.id, nome:m.nome, strumento:m.strumento, giorni:m.giorni,
     riferimento:m.riferimento, giorniExtra:m.giorni_extra, note:m.note||'',
+  }));
+  if(!D.templateRegole) D.templateRegole = [];
+  D.templateRegole.splice(0);
+  tplReg.forEach(t=>D.templateRegole.push({
+    id:t.id, nome:t.nome, clienteDefault:t.cliente_default||null,
+    descrizione:t.descrizione||'', regolePagamento:t.regole_pagamento,
   }));
   D.fattureAttive.splice(0);
   attive.forEach(f => D.fattureAttive.push({
@@ -1467,7 +1475,7 @@ const PageWatchlist = ({onNav,openModal})=>{
 
 /* ─── PAGE: DETTAGLIO COMMESSA ───────────────────────────── */
 /* Modal edit commessa: pre-compila tutti i campi e salva via updateCommessa */
-const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
+const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, deleteTemplate})=>{
   const c = commessa;
   const [nome,setNome]=useState(c.nome||'');
   const [nrOrdine,setNrOrdine]=useState(c.nrOrdine||'');
@@ -1697,14 +1705,50 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
 
       {/* ─── REGOLE DI PAGAMENTO (milestone) ─── */}
       <div style={{marginTop:18,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:8}}>
           <div style={{fontWeight:700,fontSize:13,color:T.text}}>📋 Regole di pagamento ({milestone.length} milestone)</div>
-          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
             <span style={{fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:12,background:totPerc===100?'#f0fdf4':totPerc>100?T.redL:'#fffbeb',color:totPerc===100?T.green:totPerc>100?T.red:'#92400e'}}>
               Totale: {totPerc}% {totPerc===100?'✓':totPerc>100?'⚠ supera':'⚠ incompleto'}
             </span>
             <Btn onClick={addMilestone} variant='outline' size='sm'>➕ Aggiungi rata</Btn>
           </div>
+        </div>
+        {/* TEMPLATE - carica da libreria o salva la regola corrente */}
+        <div style={{display:'flex',gap:8,marginBottom:10,padding:'8px 12px',background:'#eff6ff',border:`1px solid #bfdbfe`,borderRadius:6,alignItems:'center',flexWrap:'wrap'}}>
+          <span style={{fontSize:11,fontWeight:700,color:T.blue,textTransform:'uppercase'}}>📚 Template:</span>
+          <select value="" onChange={e=>{
+            const tplId = e.target.value;
+            if(!tplId) return;
+            const tpl = (D.templateRegole||[]).find(t=>t.id===tplId);
+            if(!tpl) return;
+            if(milestone.length>0 && !window.confirm(`Sostituire le ${milestone.length} milestone attuali con il template "${tpl.nome}"?`)) return;
+            // Genera nuovi id univoci per ogni milestone caricata
+            const newMs = (tpl.regolePagamento?.milestone||[]).map(m=>({...m, id:`ms-${Date.now()}-${Math.random().toString(36).slice(2,7)}`}));
+            setMilestone(newMs);
+            e.target.value = '';
+          }} style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:12,background:'#fff'}}>
+            <option value="">Carica template...</option>
+            {(D.templateRegole||[]).map(t=><option key={t.id} value={t.id} title={t.descrizione}>{t.nome} {t.clienteDefault?`(${t.clienteDefault.slice(0,20)})`:''}</option>)}
+          </select>
+          <Btn variant='ghost' size='sm' onClick={()=>{
+            if(milestone.length===0) return alert('Nessuna milestone da salvare. Aggiungi prima le rate.');
+            const nome = window.prompt('Nome del template (es. "Benetti Commesse", "Sanlorenzo Standard"):');
+            if(!nome || !nome.trim()) return;
+            const tpl = {
+              nome: nome.trim(),
+              clienteDefault: cliente||null,
+              descrizione: `${milestone.length} milestone (${totPerc}%) — salvato da commessa ${c.codice}`,
+              regolePagamento: { milestone, totalePerc: totPerc },
+            };
+            addTemplate(tpl);
+            alert(`Template "${nome.trim()}" salvato. Lo trovi nel dropdown "Carica template" su ogni commessa.`);
+          }}>💾 Salva come template</Btn>
+          {(D.templateRegole||[]).length>0 && (
+            <span style={{fontSize:11,color:T.textL,marginLeft:'auto'}}>
+              {(D.templateRegole||[]).length} template disponibili
+            </span>
+          )}
         </div>
         {milestone.length===0&&<div style={{padding:14,background:'#f8fafc',borderRadius:6,fontSize:12,color:T.textL,textAlign:'center'}}>
           Nessuna milestone configurata. Click su "Aggiungi rata" per costruire le regole di pagamento (es. 10% acconto / 84% SAL / 3% saldo / 3% garanzia 12 mesi).
@@ -1785,7 +1829,7 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa})=>{
   );
 };
 
-const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
+const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTemplate,deleteTemplate})=>{
   const [tab,setTab]=useState('pagamenti');
   const [editOpen,setEditOpen]=useState(false);
   const [expanded,setExpanded]=useState(null); // 'sal' | 'extra' | null
@@ -1851,7 +1895,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
         <span style={{fontSize:13,color:T.textL}}>{c.nome}</span>
         <Btn onClick={()=>setEditOpen(true)} variant='outline' size='sm' style={{marginLeft:'auto'}}>✏️ Modifica</Btn>
       </div>
-      {editOpen&&<EditCommessaModal commessa={c} onClose={()=>setEditOpen(false)} updateCommessa={updateCommessa}/>}
+      {editOpen&&<EditCommessaModal commessa={c} onClose={()=>setEditOpen(false)} updateCommessa={updateCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
 
       {/* Header KPIs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:14,marginBottom:14}}>
@@ -6996,6 +7040,28 @@ const App = ()=>{
     }
   },[bumpData]);
 
+  /* CRUD Template Regole Pagamento */
+  const addTemplate = useCallback(async (tpl)=>{
+    const tmpId = `tmp-${Date.now()}`;
+    const item = { ...tpl, id: tmpId };
+    D.templateRegole.push(item);
+    bumpData();
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/template_regole_pagamento`, {
+        method:'POST', headers:{...SB_H_WRITE, Prefer:'return=representation'},
+        body: JSON.stringify({ nome:tpl.nome, cliente_default:tpl.clienteDefault||null, descrizione:tpl.descrizione||null, regole_pagamento:tpl.regolePagamento }),
+      });
+      if(r.ok){ const [saved] = await r.json(); item.id = saved.id; bumpData(); }
+    } catch(err){ console.warn('Template solo in sessione:', err.message); }
+  },[bumpData]);
+  const deleteTemplate = useCallback(async (id)=>{
+    D.templateRegole = D.templateRegole.filter(t=>t.id!==id);
+    bumpData();
+    try {
+      await fetch(`${SB_URL}/rest/v1/template_regole_pagamento?id=eq.${id}`, { method:'DELETE', headers:SB_H_WRITE });
+    } catch(err){ console.warn('Delete template solo in sessione:', err.message); }
+  },[bumpData]);
+
   /* CRUD Modalità Pagamento */
   const addMP = useCallback(async (mp)=>{
     const tmpId = `tmp-${Date.now()}`;
@@ -7084,7 +7150,7 @@ const App = ()=>{
 </div>}
         {page==='dashboard'&&<PageDashboard onNav={navigate} openModal={openModal}/>}
           {page==='watchlist'&&<PageWatchlist onNav={navigate} openModal={openModal}/>}
-          {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal} updateCommessa={updateCommessa}/>}
+          {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal} updateCommessa={updateCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
           {page==='scadenziario'&&<PageScadenziario openModal={openModal}/>}
           {page==='fattureAttive'&&<PageFattureAttive onNav={navigate} openModal={openModal}/>}
           {page==='fatturePassive'&&<PageFatturePassive openModal={openModal}/>}
