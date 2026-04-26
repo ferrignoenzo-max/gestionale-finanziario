@@ -1878,6 +1878,38 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
         </div>
       )}
 
+      {/* RIEPILOGO REGOLE PAGAMENTO (sempre visibile in alto) */}
+      {(c.regolePagamento?.milestone||[]).length>0&&(()=>{
+        const tipoIcon={acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
+        const tipoColor={acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL};
+        return (
+          <Card style={{marginBottom:18,padding:0,borderLeft:`4px solid ${T.blue}`}}>
+            <div style={{padding:'10px 16px',background:'#f8fafc',borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:700,fontSize:13}}>📋 Regole di pagamento <span style={{color:T.textL,fontWeight:400,marginLeft:6,fontSize:11}}>({c.regolePagamento.milestone.length} rate · totale {c.regolePagamento.totalePerc||c.regolePagamento.milestone.reduce((a,m)=>a+(parseFloat(m.perc)||0),0)}%)</span></div>
+              <Btn variant='ghost' size='sm' onClick={()=>setEditOpen(true)}>✏️ Modifica</Btn>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:`repeat(${c.regolePagamento.milestone.length},1fr)`,gap:0}}>
+              {c.regolePagamento.milestone.map((m,i)=>{
+                const importoMs=(c.importoContrattuale||0)*(parseFloat(m.perc)||0)/100;
+                const mp=(D.modalitaPagamento||[]).find(x=>x.id===m.modalitaPagamentoId);
+                return (
+                  <div key={m.id} style={{padding:12,borderRight:i<c.regolePagamento.milestone.length-1?`1px solid ${T.border}`:'none',background:'#fff'}}>
+                    <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:4}}>
+                      <span style={{fontSize:14}}>{tipoIcon[m.tipo]||'•'}</span>
+                      <span style={{fontWeight:700,color:tipoColor[m.tipo]||T.text,fontSize:18}}>{m.perc}%</span>
+                    </div>
+                    <div style={{fontSize:12,fontWeight:600,marginBottom:2,maxWidth:'100%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.titolo}</div>
+                    <div style={{fontSize:11,color:T.textL,marginBottom:4}}>{fmt(importoMs)}</div>
+                    {mp&&<div style={{fontSize:10,color:T.textL,fontStyle:'italic',maxWidth:'100%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={mp.nome}>{mp.nome}</div>}
+                    {m.fideiussioneAlt?.attiva&&<span style={{display:'inline-block',marginTop:4,fontSize:9,padding:'2px 6px',borderRadius:8,background:'#fef9c3',color:'#92400e',fontWeight:600}}>📜 Fideiussione alt.</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* Tabs */}
       <div style={{display:'flex',gap:0,borderBottom:`1px solid ${T.border}`,marginBottom:18}}>
         {[{id:'pagamenti',label:'📋 Pagamenti'},{id:'sal',label:'SAL'},{id:'fatture',label:'Fatture'},{id:'extra',label:'Extra'},{id:'compensazioni',label:'Compensazioni'},{id:'regole',label:'Regole Economiche'}].map(t=>(
@@ -1958,7 +1990,89 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
                   Nessuna milestone configurata. Vai su <b>✏️ Modifica</b> → "📋 Regole di pagamento" per aggiungere le rate (es. 10/84/3/3 stile Benetti).
                 </div>
               </Card>
-            ) : ms.map((m,i)=>{
+            ) : null}
+
+            {/* ORDINI DISTINTI nelle fatture - utile per creare commesse Extra */}
+            {(()=>{
+              const ordiniMap = new Map();
+              fattAttive.forEach(f=>{
+                // Estrai numero ordine (MYOA..., ORCA/yyyy/nnnnn, ORFO/..., OLAV/..., ecc.)
+                const matches = (f.oggetto||'').match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|2\d{4}[A-Z]+\d+|2\d{4}OA\d+|[A-Z]{2,4}\d{4,}|\d{5,}[A-Z]?)/gi) || [];
+                const isExtra = /\bextra\b/i.test(f.oggetto||'');
+                const isBap = /\bbap\b/i.test(f.oggetto||'');
+                if(matches.length===0 && isExtra) {
+                  // Extra senza numero ordine specifico
+                  const k='__extra_senza_ordine__';
+                  if(!ordiniMap.has(k)) ordiniMap.set(k,{ordine:'(EXTRA senza nr ordine)',isExtra:true,isBap:false,fatture:[],imp:0,isMain:false});
+                  const r=ordiniMap.get(k); r.fatture.push(f); r.imp+=impOf(f);
+                  return;
+                }
+                matches.forEach(ord=>{
+                  if(!ordiniMap.has(ord)) ordiniMap.set(ord,{ordine:ord,isExtra,isBap,fatture:[],imp:0,isMain:false});
+                  const r=ordiniMap.get(ord); r.fatture.push(f); r.imp+=impOf(f);
+                  if(isExtra||isBap) r.isExtra=true;
+                });
+              });
+              // Marca quale è l'ordine principale (= nrOrdine della commessa)
+              const ordPrincipale = c.nrOrdine ? normCodice(c.nrOrdine) : null;
+              if(ordPrincipale && ordiniMap.has(ordPrincipale)) ordiniMap.get(ordPrincipale).isMain=true;
+              const ordini = Array.from(ordiniMap.values()).sort((a,b)=>b.imp-a.imp);
+              if(ordini.length<=1) return null;
+              return (
+                <Card style={{padding:0}}>
+                  <div style={{padding:'12px 16px',background:'#fffbeb',borderBottom:`1px solid ${T.border}`,borderRadius:'8px 8px 0 0',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13,color:'#92400e'}}>📦 Ordini distinti rilevati ({ordini.length})</div>
+                      <div style={{fontSize:11,color:T.textL,marginTop:2}}>Numeri ordine univoci nelle fatture. Quelli marcati EXTRA sono ordini extra da gestire come commesse Extra separate.</div>
+                    </div>
+                  </div>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+                    <thead>
+                      <tr style={{background:'#f8fafc',color:T.textL,fontSize:10,textTransform:'uppercase'}}>
+                        <th style={{padding:'8px 12px',textAlign:'left'}}>N° Ordine</th>
+                        <th style={{padding:'8px 12px',textAlign:'center'}}>Tipo</th>
+                        <th style={{padding:'8px 12px',textAlign:'right'}}>Fatture</th>
+                        <th style={{padding:'8px 12px',textAlign:'right'}}>Imponibile tot.</th>
+                        <th style={{padding:'8px 12px',textAlign:'left'}}>Stato</th>
+                        <th style={{padding:'8px 12px',textAlign:'center'}}>Azione</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ordini.map(r=>{
+                        const exists = D.commesse.some(cc=>cc.nrOrdine && normCodice(cc.nrOrdine)===normCodice(r.ordine));
+                        return (
+                          <tr key={r.ordine} style={{borderTop:`1px solid ${T.border}`}}>
+                            <td style={{padding:'8px 12px',fontFamily:'monospace',fontWeight:r.isMain?700:500,color:r.isMain?T.blue:T.text}}>{r.ordine}</td>
+                            <td style={{padding:'8px 12px',textAlign:'center'}}>
+                              {r.isMain ? <span style={{background:T.blueL,color:T.blue,padding:'2px 8px',borderRadius:10,fontSize:10,fontWeight:700}}>PRINCIPALE</span> :
+                               r.isExtra ? <span style={{background:T.purpleL,color:T.purple,padding:'2px 8px',borderRadius:10,fontSize:10,fontWeight:700}}>EXTRA</span> :
+                               <span style={{background:'#f1f5f9',color:T.textL,padding:'2px 8px',borderRadius:10,fontSize:10}}>?</span>}
+                            </td>
+                            <td style={{padding:'8px 12px',textAlign:'right',color:T.textL}}>{r.fatture.length}</td>
+                            <td style={{padding:'8px 12px',textAlign:'right',fontWeight:700}}>{fmt(r.imp)}</td>
+                            <td style={{padding:'8px 12px'}}>
+                              {exists ? <span style={{color:T.green,fontSize:11,fontWeight:600}}>✓ Commessa già creata</span> :
+                               r.isMain ? <span style={{color:T.blue,fontSize:11}}>questa commessa</span> :
+                               <span style={{color:T.amber,fontSize:11}}>da creare</span>}
+                            </td>
+                            <td style={{padding:'8px 12px',textAlign:'center'}}>
+                              {!exists && !r.isMain && r.ordine!=='(EXTRA senza nr ordine)' &&
+                                <Btn variant='outline' size='sm' onClick={()=>{
+                                  navigator.clipboard?.writeText(r.ordine);
+                                  if(window.confirm(`Numero ordine "${r.ordine}" copiato. Vuoi aprire ora il form Nuova Commessa per crearlo come EXTRA?`)) onNav('nuovaCommessa');
+                                }}>➕ Crea Extra</Btn>
+                              }
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </Card>
+              );
+            })()}
+
+            {ms.map((m,i)=>{
               const importoMs = (importoCommessa * (parseFloat(m.perc)||0)) / 100;
               const fatts = fattureMS(m);
               // Usa imponibile per matching milestone (esclude bollo/IVA)
