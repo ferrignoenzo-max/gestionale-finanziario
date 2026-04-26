@@ -1545,13 +1545,26 @@ const PageWatchlist = ({onNav,openModal})=>{
                 const nextSc = D.scadenziario.filter(s=>s.commessa===c.id&&new Date(s.data)>=today).sort((a,b)=>new Date(a.data)-new Date(b.data))[0];
                 const scadute = D.fattureAttive.filter(f=>f.commessa===c.id&&f.stato==='Scaduta').length;
                 const tipoColor = c.tipoLavoro==='Commessa'?{bg:T.blueL,color:T.blue}:c.tipoLavoro==='Ordine'?{bg:'#f0fdf4',color:T.green}:{bg:T.purpleL,color:T.purple};
+                // Verifica completezza dati (rispetta skipFlags se presenti)
+                const sk = c.skipFlags || {};
+                const incompletoImporto = (!c.importoContrattuale || c.importoContrattuale<=0) && !sk.importo;
+                const incompletoNrOrd  = c.tipoLavoro==='Commessa' && !c.nrOrdine && !sk.nrOrdine;
+                const incompletoRegole = c.tipoLavoro!=='Extra' && !c.acconto && !c.garanzia && (!c.regolePagamento?.milestone?.length) && !sk.regole;
+                const motivi = [
+                  incompletoImporto && 'importo',
+                  incompletoNrOrd && 'nr ordine',
+                  incompletoRegole && 'regole pag.'
+                ].filter(Boolean);
                 return (
                   <tr key={c.id} style={{borderBottom:`1px solid ${T.border}`}}
                     onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'}
                     onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                     <Td><span style={{background:tipoColor.bg,color:tipoColor.color,padding:'2px 7px',borderRadius:10,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}}>{c.tipoLavoro}</span></Td>
                     <Td>
-                      <div style={{fontWeight:700,color:T.blue,cursor:'pointer'}} onClick={()=>onNav('dettaglioCommessa',c)}>{c.codice}</div>
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <span style={{fontWeight:700,color:T.blue,cursor:'pointer'}} onClick={()=>onNav('dettaglioCommessa',c)}>{c.codice}</span>
+                        {motivi.length>0 && <span title={`Manca: ${motivi.join(', ')}`} style={{background:'#fffbeb',color:'#92400e',padding:'1px 6px',borderRadius:8,fontSize:10,fontWeight:700,border:'1px solid #fcd34d',cursor:'help'}}>⚠ Incompleta</span>}
+                      </div>
                       <div style={{fontSize:11,color:T.textL,maxWidth:150}}>{c.nome}</div>
                     </Td>
                     <Td>{c.cliente}</Td>
@@ -2148,9 +2161,12 @@ NON USARE MAI tipo="acconto" per Benetti.`;
   );
 };
 
-const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTemplate,deleteTemplate})=>{
+const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTemplate,deleteTemplate,deleteCommessa})=>{
   const [tab,setTab]=useState('pagamenti');
   const [editOpen,setEditOpen]=useState(false);
+  const [delStep,setDelStep]=useState(0); // 0=none, 1=primo confirm, 2=digitando codice
+  const [delTyped,setDelTyped]=useState('');
+  const [delBusy,setDelBusy]=useState(false);
   const [expanded,setExpanded]=useState(null); // 'sal' | 'extra' | null
   if(!commessa) return <div style={{padding:24}}><Card><div style={{color:T.textL,textAlign:'center',padding:40}}>Nessuna commessa selezionata. <span style={{color:T.blue,cursor:'pointer'}} onClick={()=>onNav('watchlist')}>Vai alla watchlist →</span></div></Card></div>;
   const c=commessa;
@@ -2216,8 +2232,63 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         <span style={{background:c.tipoLavoro==='Commessa'?T.blueL:c.tipoLavoro==='Ordine'?'#f0fdf4':T.purpleL,color:c.tipoLavoro==='Commessa'?T.blue:c.tipoLavoro==='Ordine'?T.green:T.purple,padding:'3px 10px',borderRadius:12,fontSize:11,fontWeight:700}}>{c.tipoLavoro}</span>
         <span style={{fontSize:13,color:T.textL}}>{c.nome}</span>
         <Btn onClick={()=>setEditOpen(true)} variant='outline' size='sm' style={{marginLeft:'auto'}}>✏️ Modifica</Btn>
+        <Btn onClick={()=>setDelStep(1)} variant='outline' size='sm' style={{borderColor:T.red,color:T.red}}>🗑 Elimina</Btn>
       </div>
       {editOpen&&<EditCommessaModal commessa={c} onClose={()=>setEditOpen(false)} updateCommessa={updateCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
+
+      {/* ── DELETE MODAL — doppia conferma, le fatture restano ── */}
+      {delStep>0 && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,.5)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>{if(!delBusy){setDelStep(0);setDelTyped('');}}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:24,maxWidth:520,width:'90%',boxShadow:'0 10px 40px rgba(0,0,0,.3)',borderTop:`4px solid ${T.red}`}}>
+            <div style={{fontSize:18,fontWeight:800,color:T.red,marginBottom:8}}>🗑 Elimina commessa {c.codice}</div>
+            <div style={{fontSize:13,color:T.text,marginBottom:14,lineHeight:1.5}}>
+              Stai per eliminare <b>{c.codice} – {c.nome}</b> ({c.cliente}).
+            </div>
+            <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:12,fontSize:12,color:'#166534',marginBottom:14}}>
+              ✅ <b>Le fatture NON verranno eliminate.</b> Restano in archivio (vista "Fatture") e tornano "non assegnate" → potrai riagganciarle a un'altra commessa.
+            </div>
+            {(()=>{
+              const fattAttCount = D.fattureAttive.filter(f=>f.commessa===c.id).length;
+              const fattPasCount = D.fatturePassive.filter(f=>f.commessa===c.id).length;
+              if(fattAttCount+fattPasCount===0) return null;
+              return (
+                <div style={{background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:8,padding:10,fontSize:12,color:'#92400e',marginBottom:14}}>
+                  ℹ️ {fattAttCount} fatture attive + {fattPasCount} passive verranno scollegate (resteranno in DB).
+                </div>
+              );
+            })()}
+            {delStep===1 ? (
+              <>
+                <div style={{fontSize:12,color:T.text,marginBottom:14}}><b>Doppia conferma richiesta.</b> Per procedere clicca "Continua" qui sotto, poi nello step successivo dovrai digitare il codice commessa.</div>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <Btn onClick={()=>{setDelStep(0);setDelTyped('');}} variant='outline'>Annulla</Btn>
+                  <Btn onClick={()=>setDelStep(2)} style={{background:T.red,color:'#fff'}}>Continua →</Btn>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{fontSize:12,color:T.text,marginBottom:8}}>Per confermare, digita esattamente il codice commessa:</div>
+                <div style={{background:'#f8fafc',border:`1px solid ${T.border}`,borderRadius:6,padding:8,marginBottom:10,textAlign:'center',fontFamily:'monospace',fontSize:14,fontWeight:700,color:T.red,letterSpacing:1}}>{c.codice}</div>
+                <input autoFocus value={delTyped} onChange={e=>setDelTyped(e.target.value)} placeholder={`Scrivi "${c.codice}"`} style={{...SI,marginBottom:14,fontFamily:'monospace'}} disabled={delBusy}/>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <Btn onClick={()=>{setDelStep(0);setDelTyped('');}} variant='outline' disabled={delBusy}>Annulla</Btn>
+                  <Btn disabled={delTyped.trim().toUpperCase()!==c.codice.toUpperCase()||delBusy} onClick={async ()=>{
+                    setDelBusy(true);
+                    try {
+                      if(deleteCommessa) await deleteCommessa(c);
+                      setDelStep(0); setDelTyped('');
+                      onNav('watchlist');
+                    } catch(err) {
+                      alert('Errore eliminazione: '+err.message);
+                    }
+                    setDelBusy(false);
+                  }} style={{background:T.red,color:'#fff'}}>{delBusy?'Elimino...':'🗑 Elimina definitivamente'}</Btn>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ─── 4 KPI riepilogo finanziario - SEMPRE IN CIMA, subito visibili ─── */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:18}}>
@@ -4111,6 +4182,11 @@ const PageNuovaCommessa = ({onNav, addCommessa, addTemplate, deleteTemplate})=>{
   const [contrattoFile,setContrattoFile]=useState(null); // {name, url, size, base64}
   const [aiBusy,setAiBusy]=useState(false);
 
+  // Flag espliciti "non specifico" (per skippare warning)
+  const [skipImporto,setSkipImporto]=useState(false);
+  const [skipNrOrdine,setSkipNrOrdine]=useState(false);
+  const [skipRegole,setSkipRegole]=useState(false); // niente acconto+garanzia+milestone
+
   // Calcoli live
   const impN = parseFloat(importo)||0;
   const accImporto = accActive ? (accTipo==='Percentuale' ? impN*(parseFloat(accVal)||0)/100 : parseFloat(accVal)||0) : 0;
@@ -4592,46 +4668,100 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
               <InfoRow label="Compensazioni" value={compEnabled?'Abilitate':'Disabilitate'}/>
             </div>
           </div>
-          <div style={{display:'flex',justifyContent:'space-between'}}>
-            <Btn variant='outline' onClick={()=>{
-              if(window.confirm('Annullare la creazione? Tutti i dati inseriti andranno persi.')) {
-                window._aiMilestonePending = null;
-                onNav('watchlist');
-              }
-            }}>✕ Annulla</Btn>
-            <Btn disabled={!codice||!cliente} onClick={()=>{
-              // Recupera milestone AI estratte da PDF (se presenti)
-              const aiMs = window._aiMilestonePending || [];
-              const totPercAI = aiMs.reduce((a,m)=>a+(parseFloat(m.perc)||0),0);
-              const nuova = {
-                id: `C${Date.now()}`,
-                codice, nrOrdine, nome, cliente,
-                tipoLavoro: tipo,
-                importoContrattuale: impN,
-                stato: 'Attiva',
-                dataInizio, dataFine,
-                fattMode, pagMode,
-                salProdAttivoTot: 0,
-                fatturato: 0,
-                incassato: 0,
-                madreId: tipo==='Extra'?madreId:null,
-                autonomo: tipo==='Extra'?autonomo:null,
-                acconto: accActive ? {tipo:accTipo,val:accVal,regola:accRegola,importo:accImporto,modalitaPagamentoId:accModalitaPag||null} : null,
-                garanzia: garActive ? {tipo:garTipo,val:garVal,evento:garEvento,svincolo:garSvincolo,trattenutaSuFatture:garTrattenutaSuFatture,applicaSuAcconto:garApplicaSuAcconto,modalitaPagamentoId:garModalitaPag||null} : null,
-                regolePagamento: aiMs.length>0 ? { milestone: aiMs, totalePerc: totPercAI } : null,
-                compEnabled,
-                contratto: contrattoFile||null,
-                criticita: [],
-                pagato: 0,
-                _nuova: true,
-              };
-              // Il push è fatto da addCommessa (in App) — non pushiamo qui
-              if(addCommessa) addCommessa(nuova);
-              window._aiMilestonePending = null; // reset per la prossima volta
-              setNuovaCreata(nuova);
-              setStep(4);
-            }}>✓ Conferma creazione</Btn>
-          </div>
+          {/* ── VALIDAZIONE: errori bloccanti + warning con override esplicito ── */}
+          {(()=>{
+            const aiMs = window._aiMilestonePending || [];
+            const errors = [];
+            const warnings = [];
+            // ERRORI BLOCCANTI (sempre)
+            if(!codice.trim()) errors.push('Codice commessa mancante');
+            if(!cliente) errors.push('Cliente non selezionato');
+            if(!nome.trim()) errors.push('Nome / Descrizione mancante');
+            if(!dataInizio) errors.push('Data inizio mancante');
+            if(tipo==='Extra' && !madreId) errors.push('Commessa madre mancante (richiesta per tipo Extra)');
+            // WARNING (skippabili con flag esplicito)
+            if(impN<=0 && !skipImporto) warnings.push({key:'importo',msg:'Importo contrattuale = 0',hint:'Senza importo non si può calcolare SAL%, garanzia % o residuo da fatturare. Inserisci l\'importo o spunta "non disponibile".'});
+            if(tipo==='Commessa' && !nrOrdine.trim() && !skipNrOrdine) warnings.push({key:'nrOrdine',msg:'N° Ordine cliente mancante',hint:'Senza N° ordine il sistema non riesce a separare automaticamente fatture SAL dalle Extra (un\'unica commessa può avere più ordini). Aggiungi il numero o spunta "non disponibile".'});
+            if(tipo!=='Extra' && !accActive && !garActive && aiMs.length===0 && !skipRegole) warnings.push({key:'regole',msg:'Nessuna regola di pagamento configurata',hint:'Senza regole (acconto, garanzia, milestone) i pagamenti non vengono tracciati. Configura le regole o carica il PDF del contratto per auto-compilare con AI, oppure spunta "nessuna regola necessaria".'});
+            const blocked = errors.length>0;
+            const hasWarn = warnings.length>0;
+            return (<>
+              {blocked && (
+                <div style={{background:'#fef2f2',border:`1px solid #fecaca`,borderRadius:8,padding:12,marginBottom:12}}>
+                  <div style={{fontWeight:700,color:'#991b1b',fontSize:13,marginBottom:6}}>⛔ Campi obbligatori mancanti</div>
+                  <ul style={{margin:0,paddingLeft:20,fontSize:12,color:'#991b1b'}}>{errors.map((e,i)=><li key={i}>{e}</li>)}</ul>
+                </div>
+              )}
+              {hasWarn && (
+                <div style={{background:'#fffbeb',border:`1px solid #fcd34d`,borderRadius:8,padding:12,marginBottom:12}}>
+                  <div style={{fontWeight:700,color:'#92400e',fontSize:13,marginBottom:8}}>⚠ Dati incompleti — verifica prima di creare</div>
+                  {warnings.map(w=>(
+                    <div key={w.key} style={{marginBottom:8,paddingBottom:8,borderBottom:'1px dashed #fcd34d'}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+                        <div style={{fontSize:12,fontWeight:600,color:'#92400e'}}>{w.msg}</div>
+                        <label style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:'#92400e',cursor:'pointer'}}>
+                          <input type="checkbox" checked={false} onChange={()=>{
+                            if(w.key==='importo') setSkipImporto(true);
+                            if(w.key==='nrOrdine') setSkipNrOrdine(true);
+                            if(w.key==='regole') setSkipRegole(true);
+                          }}/>
+                          Non disponibile / non necessario
+                        </label>
+                      </div>
+                      <div style={{fontSize:11,color:'#78350f',lineHeight:1.5}}>{w.hint}</div>
+                    </div>
+                  ))}
+                  <div style={{fontSize:11,color:'#92400e',marginTop:4,fontStyle:'italic'}}>Spunta i flag solo se questi dati davvero non si applicano alla commessa. In caso contrario il gestionale non potrà tracciare correttamente SAL/Extra/garanzie.</div>
+                </div>
+              )}
+              {!blocked && !hasWarn && (skipImporto||skipNrOrdine||skipRegole) && (
+                <div style={{background:'#f0fdf4',border:`1px solid #bbf7d0`,borderRadius:8,padding:10,marginBottom:12,fontSize:12,color:'#166534'}}>
+                  ✓ Tutti i controlli superati. Skip esplicito su: {[skipImporto&&'importo',skipNrOrdine&&'nr ordine',skipRegole&&'regole pagamento'].filter(Boolean).join(', ')}.
+                </div>
+              )}
+              <div style={{display:'flex',justifyContent:'space-between'}}>
+                <Btn variant='outline' onClick={()=>{
+                  if(window.confirm('Annullare la creazione? Tutti i dati inseriti andranno persi.')) {
+                    window._aiMilestonePending = null;
+                    onNav('watchlist');
+                  }
+                }}>✕ Annulla</Btn>
+                <Btn disabled={blocked||hasWarn} onClick={()=>{
+                  // Recupera milestone AI estratte da PDF (se presenti)
+                  const aiMsLocal = window._aiMilestonePending || [];
+                  const totPercAI = aiMsLocal.reduce((a,m)=>a+(parseFloat(m.perc)||0),0);
+                  const nuova = {
+                    id: `C${Date.now()}`,
+                    codice, nrOrdine, nome, cliente,
+                    tipoLavoro: tipo,
+                    importoContrattuale: impN,
+                    stato: 'Attiva',
+                    dataInizio, dataFine,
+                    fattMode, pagMode,
+                    salProdAttivoTot: 0,
+                    fatturato: 0,
+                    incassato: 0,
+                    madreId: tipo==='Extra'?madreId:null,
+                    autonomo: tipo==='Extra'?autonomo:null,
+                    acconto: accActive ? {tipo:accTipo,val:accVal,regola:accRegola,importo:accImporto,modalitaPagamentoId:accModalitaPag||null} : null,
+                    garanzia: garActive ? {tipo:garTipo,val:garVal,evento:garEvento,svincolo:garSvincolo,trattenutaSuFatture:garTrattenutaSuFatture,applicaSuAcconto:garApplicaSuAcconto,modalitaPagamentoId:garModalitaPag||null} : null,
+                    regolePagamento: aiMsLocal.length>0 ? { milestone: aiMsLocal, totalePerc: totPercAI } : null,
+                    compEnabled,
+                    contratto: contrattoFile||null,
+                    criticita: [],
+                    pagato: 0,
+                    skipFlags: { importo:skipImporto, nrOrdine:skipNrOrdine, regole:skipRegole },
+                    _nuova: true,
+                  };
+                  // Il push è fatto da addCommessa (in App) — non pushiamo qui
+                  if(addCommessa) addCommessa(nuova);
+                  window._aiMilestonePending = null; // reset per la prossima volta
+                  setNuovaCreata(nuova);
+                  setStep(4);
+                }}>{blocked?'⛔ Risolvi errori':hasWarn?'⚠ Conferma dati mancanti':'✓ Conferma creazione'}</Btn>
+              </div>
+            </>);
+          })()}
         </Card>
       )}
 
@@ -8020,6 +8150,56 @@ const App = ()=>{
     }
   },[bumpData]);
 
+  /* Elimina commessa: rimuove da Supabase + memoria, scollega le fatture (commessa_id=NULL).
+     Le fatture restano in DB e tornano "non assegnate" per essere riagganciate ad altra commessa. */
+  const deleteCommessa = useCallback(async (commessa)=>{
+    const id = commessa.id;
+    // 1) Scollega tutte le fatture (DB) → commessa_id=NULL, commessa_codice=NULL
+    try {
+      await Promise.all([
+        fetch(`${SB_URL}/rest/v1/fatture_attive?commessa_id=eq.${id}`, {
+          method:'PATCH', headers: SB_H_WRITE,
+          body: JSON.stringify({ commessa_id: null, commessa_codice: null })
+        }),
+        fetch(`${SB_URL}/rest/v1/fatture_passive?commessa_id=eq.${id}`, {
+          method:'PATCH', headers: SB_H_WRITE,
+          body: JSON.stringify({ commessa_id: null, commessa_codice: null })
+        }),
+      ]);
+    } catch(e) { console.warn('Scollegamento fatture fallito (continuo):', e.message); }
+    // 2) Cancella commessa da DB
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/commesse?id=eq.${id}`, {
+        method:'DELETE', headers: SB_H_WRITE,
+      });
+      if(!r.ok && r.status!==404) {
+        const txt = await r.text();
+        throw new Error(txt);
+      }
+    } catch(e) {
+      console.warn('Delete da Supabase fallito (continuo in memoria):', e.message);
+    }
+    // 3) Scollega in memoria + rimuovi commessa
+    [D.fattureAttive, D.fatturePassive].forEach(arr=>{
+      arr.forEach(f=>{
+        if(f.commessa===id){
+          f.commessa = null;
+          f.commessaCodice = null;
+          f.statoLink = 'NonAssegnata';
+          f.tipoRif = null;
+          f.salNum = null;
+          f.garanzia = 0;
+          f.netto = f.lordo||0;
+        }
+      });
+    });
+    const i = D.commesse.findIndex(c=>c.id===id);
+    if(i>=0) D.commesse.splice(i,1);
+    linkFatture(); // riagganciare a fuzzy o altri match se possibile
+    ricalcolaKPI();
+    bumpData();
+  },[bumpData]);
+
   const handleReset = ()=>{
     D.commesse.splice(D_DEMO_COMMESSE_LEN);
     D.anagrafica.splice(D_DEMO_ANAGRAFICA_LEN);
@@ -8045,7 +8225,7 @@ const App = ()=>{
 </div>}
         {page==='dashboard'&&<PageDashboard onNav={navigate} openModal={openModal}/>}
           {page==='watchlist'&&<PageWatchlist onNav={navigate} openModal={openModal}/>}
-          {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal} updateCommessa={updateCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
+          {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal} updateCommessa={updateCommessa} deleteCommessa={deleteCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
           {page==='scadenziario'&&<PageScadenziario openModal={openModal}/>}
           {page==='fattureAttive'&&<PageFattureAttive onNav={navigate} openModal={openModal}/>}
           {page==='fatturePassive'&&<PageFatturePassive openModal={openModal}/>}
