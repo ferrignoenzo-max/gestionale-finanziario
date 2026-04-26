@@ -843,6 +843,11 @@ const PageDashboard = ({onNav,openModal})=>{
   const [pasComm,setPasComm]=useState('');
   const [pasForn,setPasForn]=useState('');
   const [pasSort,setPasSort]=useState('scadenza');
+  // Filtri Avanzamento Commesse
+  const [acFilter,setAcFilter]=useState('');
+  const [acTipo,setAcTipo]=useState('');
+  const [acCli,setAcCli]=useState('');
+  const [acSort,setAcSort]=useState('compilate'); // compilate | sal | importo | codice
 
   const AlertItem = ({text,color,commessa})=>(
     <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${T.border}`}}>
@@ -984,28 +989,92 @@ const PageDashboard = ({onNav,openModal})=>{
       {/* Barre avanzamento SAL + Fatturato */}
       <div style={{marginBottom:18}}>
         <Card>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,flexWrap:'wrap',gap:8}}>
             <h3 style={{fontSize:14,fontWeight:700,color:T.text}}>Avanzamento Commesse – SAL produttivo & Fatturato</h3>
             <div style={{display:'flex',gap:14,fontSize:11}}>
               <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#2563eb',borderRadius:2,display:'inline-block'}}/><b>SAL produttivo</b></span>
-              <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#16a34a',borderRadius:2,display:'inline-block'}}/> Fatt. produttivo (= SAL)</span>
+              <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#16a34a',borderRadius:2,display:'inline-block'}}/> Fatt. produttivo</span>
               <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#f59e0b',borderRadius:2,display:'inline-block'}}/> Acconto residuo</span>
             </div>
           </div>
-          <div style={{fontSize:11,color:T.textL,marginBottom:16}}>
-            Scala = contratto. <b>Barra 1</b>: avanzamento reale lavori. <b>Barra 2</b>: fatturato produttivo (verde) + acconto residuo da riassorbire (ambra). Garanzia non inclusa nelle barre.
+          {/* Filtri */}
+          <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+            <input value={acFilter} onChange={e=>setAcFilter(e.target.value)} placeholder="🔍 cerca codice/nome/cliente"
+              style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:12,width:200}}/>
+            <select value={acTipo} onChange={e=>setAcTipo(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:12,background:'#fff'}}>
+              <option value="">Tutti i tipi</option>
+              <option value="Commessa">Commessa</option>
+              <option value="Ordine">Ordine</option>
+              <option value="Extra">Extra</option>
+            </select>
+            <select value={acCli} onChange={e=>setAcCli(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:12,background:'#fff',maxWidth:200}}>
+              <option value="">Tutti i clienti</option>
+              {[...new Set(D.commesse.filter(c=>c.stato==='Attiva').map(c=>c.cliente))].filter(Boolean).sort().map(cl=><option key={cl} value={cl}>{cl.length>30?cl.slice(0,28)+'…':cl}</option>)}
+            </select>
+            <select value={acSort} onChange={e=>setAcSort(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:5,padding:'4px 8px',fontSize:12,background:'#fff',marginLeft:'auto'}}>
+              <option value="compilate">📋 Compilate prima</option>
+              <option value="sal">↓ SAL %</option>
+              <option value="importo">↓ Importo</option>
+              <option value="codice">A-Z Codice</option>
+            </select>
           </div>
-          <div style={{display:'flex',flexDirection:'column',gap:0}}>
-            {D.commesse.filter(c=>c.stato==='Attiva').map((c,i)=>{
+          <div style={{fontSize:11,color:T.textL,marginBottom:14}}>
+            Scala = contratto. <b>Barra 1</b>: avanzamento reale lavori. <b>Barra 2</b>: fatturato. Click sulla riga per aprire la commessa.
+          </div>
+          {(()=>{
+            // Filtra
+            const norm = (s)=>String(s||'').toLowerCase();
+            let arr = D.commesse.filter(c=>{
+              if(c.stato!=='Attiva') return false;
+              if(acTipo && c.tipoLavoro!==acTipo) return false;
+              if(acCli && c.cliente!==acCli) return false;
+              if(acFilter && !norm((c.codice||'')+' '+(c.nome||'')+' '+(c.cliente||'')+' '+(c.nrOrdine||'')).includes(norm(acFilter))) return false;
+              return true;
+            });
+            // Ordina
+            if(acSort==='compilate') {
+              // Prima quelle con importo > 0 (compilate), poi quelle senza importo
+              arr = arr.sort((a,b)=>{
+                const aFatto = (a.importoContrattuale||0)>0;
+                const bFatto = (b.importoContrattuale||0)>0;
+                if(aFatto !== bFatto) return aFatto?-1:1;
+                // Tra compilate, ordina per SAL% decrescente
+                if(aFatto && bFatto) {
+                  const aSal = calcBarreCommessa(a).salPct;
+                  const bSal = calcBarreCommessa(b).salPct;
+                  return bSal - aSal;
+                }
+                // Tra non compilate, ordina alfabetico
+                return (a.codice||'').localeCompare(b.codice||'');
+              });
+            } else if(acSort==='sal') {
+              arr = arr.sort((a,b) => calcBarreCommessa(b).salPct - calcBarreCommessa(a).salPct);
+            } else if(acSort==='importo') {
+              arr = arr.sort((a,b) => (b.importoContrattuale||0) - (a.importoContrattuale||0));
+            } else if(acSort==='codice') {
+              arr = arr.sort((a,b) => (a.codice||'').localeCompare(b.codice||''));
+            }
+
+            const compilate = arr.filter(c=>(c.importoContrattuale||0)>0);
+            const daCompilare = arr.filter(c=>(c.importoContrattuale||0)===0);
+            const tipoIcon = (t)=> t==='Commessa'?'📦':t==='Ordine'?'📋':t==='Extra'?'➕':'•';
+            const tipoColor = (t)=> t==='Commessa'?T.blue:t==='Ordine'?T.green:t==='Extra'?T.purple:T.textL;
+
+            const renderRow = (c, idx, last) => {
               const {salPct,fattProdPct,accResPct,fattTotPct,salAbs,accResAbs,fattTotAbs} = calcBarreCommessa(c);
               return (
-                <div key={c.id} style={{padding:'12px 0',borderBottom:`1px solid ${i<D.commesse.filter(x=>x.stato==='Attiva').length-1?T.border:'transparent'}`}}>
+                <div key={c.id} onClick={()=>onNav('dettaglioCommessa',c)}
+                  style={{padding:'10px 8px',borderBottom:`1px solid ${last?'transparent':T.border}`,cursor:'pointer',transition:'background .15s',borderRadius:6}}
+                  onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'}
+                  onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
                   <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                    <span style={{background:tipoColor(c.tipoLavoro)+'22',color:tipoColor(c.tipoLavoro),padding:'2px 7px',borderRadius:10,fontSize:9,fontWeight:700,whiteSpace:'nowrap'}}>{tipoIcon(c.tipoLavoro)} {c.tipoLavoro}</span>
                     <span style={{width:120,fontWeight:700,fontSize:12,color:T.blue,flexShrink:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.codice}</span>
                     <span style={{fontSize:12,color:T.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{c.nome}</span>
-                    <span style={{fontSize:11,color:T.textL,flexShrink:0}}>{c.cliente}</span>
-                    <span style={{fontWeight:700,fontSize:12,color:T.textL,flexShrink:0}}>{fmt(c.importoContrattuale)}</span>
+                    <span style={{fontSize:11,color:T.textL,flexShrink:0,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.cliente}</span>
+                    <span style={{fontWeight:700,fontSize:12,color:T.textL,flexShrink:0,minWidth:80,textAlign:'right'}}>{c.importoContrattuale>0?fmt(c.importoContrattuale):<span style={{color:T.amber,fontStyle:'italic',fontSize:10}}>importo n/d</span>}</span>
                   </div>
+                  {c.importoContrattuale>0 && (
                   <div style={{paddingLeft:42}}>
                     {/* Barra 1: SAL produttivo */}
                     <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:5}}>
@@ -1032,10 +1101,34 @@ const PageDashboard = ({onNav,openModal})=>{
                       </span>
                     </div>
                   </div>
+                  )}
                 </div>
               );
-            })}
-          </div>
+            };
+            return (
+              <div style={{display:'flex',flexDirection:'column',gap:0}}>
+                {compilate.length>0 && (
+                  <>
+                    <div style={{padding:'6px 0 8px',fontSize:11,fontWeight:700,color:T.green,textTransform:'uppercase',letterSpacing:.5,borderBottom:`2px solid ${T.green}33`,marginBottom:6}}>
+                      ✅ Compilate ({compilate.length})
+                    </div>
+                    {compilate.map((c,i)=>renderRow(c, i, i===compilate.length-1 && daCompilare.length===0))}
+                  </>
+                )}
+                {daCompilare.length>0 && (
+                  <>
+                    <div style={{padding:'14px 0 8px',fontSize:11,fontWeight:700,color:T.amber,textTransform:'uppercase',letterSpacing:.5,borderBottom:`2px solid ${T.amber}33`,marginBottom:6,marginTop:compilate.length>0?6:0}}>
+                      ⏳ Da compilare ({daCompilare.length}) — manca importo contratto
+                    </div>
+                    {daCompilare.map((c,i)=>renderRow(c, i, i===daCompilare.length-1))}
+                  </>
+                )}
+                {arr.length===0 && (
+                  <div style={{padding:24,textAlign:'center',color:T.textL,fontSize:13}}>Nessuna commessa corrisponde ai filtri.</div>
+                )}
+              </div>
+            );
+          })()}
         </Card>
       </div>
 
