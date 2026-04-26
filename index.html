@@ -2505,6 +2505,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
 
       {/* RIEPILOGO REGOLE PAGAMENTO (sempre visibile in alto) */}
       {(c.regolePagamento?.milestone||[]).length>0&&(()=>{
+        // Icona/colore: priorità al titolo (se contiene 'acconto' usa 💰 anche se tipo=sal)
+        const _icona = (m)=> /\bacconto\b|\banticipo\b|\binizio\s*lavori\b/i.test(m.titolo||'') ? '💰' : ({acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'}[m.tipo]||'•');
+        const _colore = (m)=> /\bacconto\b|\banticipo\b/i.test(m.titolo||'') ? T.purple : ({acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL}[m.tipo]||T.textL);
         const tipoIcon={acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
         const tipoColor={acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL};
         return (
@@ -2520,8 +2523,8 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
                 return (
                   <div key={m.id} style={{padding:12,borderRight:i<c.regolePagamento.milestone.length-1?`1px solid ${T.border}`:'none',background:'#fff'}}>
                     <div style={{display:'flex',gap:6,alignItems:'center',marginBottom:4}}>
-                      <span style={{fontSize:14}}>{tipoIcon[m.tipo]||'•'}</span>
-                      <span style={{fontWeight:700,color:tipoColor[m.tipo]||T.text,fontSize:18}}>{m.perc}%</span>
+                      <span style={{fontSize:14}}>{_icona(m)}</span>
+                      <span style={{fontWeight:700,color:_colore(m),fontSize:18}}>{m.perc}%</span>
                     </div>
                     <div style={{fontSize:12,fontWeight:600,marginBottom:2,maxWidth:'100%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.titolo}</div>
                     <div style={{fontSize:11,color:T.textL,marginBottom:4}}>{fmt(importoMs)}</div>
@@ -2719,13 +2722,13 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
               const statoColor = stato==='Pagata' ? T.green : stato==='Fatturata' ? T.blue : stato==='In corso' ? T.amber : T.textL;
               const mp = lookupMP(m.modalitaPagamentoId);
               return (
-                <Card key={m.id} style={{padding:0,borderLeft:`4px solid ${tipoColor[m.tipo]||T.textL}`}}>
+                <Card key={m.id} style={{padding:0,borderLeft:`4px solid ${_colore(m)}`}}>
                   <div style={{padding:'14px 16px',borderBottom:`1px solid ${T.border}`,background:'#fafbfc',borderRadius:'8px 8px 0 0'}}>
                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,flexWrap:'wrap'}}>
                       <div style={{display:'flex',alignItems:'center',gap:10}}>
                         <span style={{background:'#fff',width:28,height:28,borderRadius:14,display:'inline-flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:12,border:`1px solid ${T.border}`}}>{i+1}</span>
                         <div>
-                          <div style={{fontWeight:700,fontSize:14}}>{tipoIcon[m.tipo]||'•'} {m.titolo||'(senza titolo)'}</div>
+                          <div style={{fontWeight:700,fontSize:14}}>{_icona(m)} {m.titolo||'(senza titolo)'}</div>
                           <div style={{fontSize:11,color:T.textL,marginTop:2}}>
                             {mp?`${mp.nome} (${mp.strumento})`:'Modalità non specificata'}
                             {m.condizioni?` · ${m.condizioni.slice(0,80)}${m.condizioni.length>80?'…':''}`:''}
@@ -2734,7 +2737,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
                       </div>
                       <div style={{display:'flex',gap:14,alignItems:'center'}}>
                         <div style={{textAlign:'right'}}>
-                          <div style={{fontWeight:800,fontSize:18,color:tipoColor[m.tipo]||T.text}}>{fmt(importoMs)}</div>
+                          <div style={{fontWeight:800,fontSize:18,color:_colore(m)}}>{fmt(importoMs)}</div>
                           <div style={{fontSize:10,color:T.textL}}>{m.perc}% del contratto</div>
                         </div>
                         <span style={{background:statoColor,color:'#fff',padding:'4px 10px',borderRadius:12,fontSize:11,fontWeight:700,minWidth:90,textAlign:'center'}}>{stato}</span>
