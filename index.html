@@ -4554,7 +4554,13 @@ Analizza il PDF e restituisci SOLO un JSON valido (niente markdown, niente backt
               <InfoRow label="Compensazioni" value={compEnabled?'Abilitate':'Disabilitate'}/>
             </div>
           </div>
-          <div style={{display:'flex',justifyContent:'flex-end'}}>
+          <div style={{display:'flex',justifyContent:'space-between'}}>
+            <Btn variant='outline' onClick={()=>{
+              if(window.confirm('Annullare la creazione? Tutti i dati inseriti andranno persi.')) {
+                window._aiMilestonePending = null;
+                onNav('watchlist');
+              }
+            }}>✕ Annulla</Btn>
             <Btn disabled={!codice||!cliente} onClick={()=>{
               // Recupera milestone AI estratte da PDF (se presenti)
               const aiMs = window._aiMilestonePending || [];
