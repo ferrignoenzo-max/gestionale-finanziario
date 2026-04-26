@@ -234,15 +234,23 @@ const parseCodiceCommessa = (oggetto)=>{
 
 /* Calcola garanzia dinamicamente dalla config commessa */
 const calcolaGaranzia = (fattura, commessa)=>{
-  if(!commessa||!commessa.garanzia) return 0;
+  if(!commessa) return 0;
   if(fattura.tipoRif==='Acconto') return 0; // acconti mai garanzia
+  // Se la commessa ha REGOLE DI PAGAMENTO con saldo/garanzia come milestone separate
+  // (es. Benetti 10/84/3/3), allora NON trattenere garanzia su ogni fattura SAL:
+  // il 3% saldo e il 3% garanzia verranno fatturati come rate separate alla fine.
+  const ms = commessa.regolePagamento?.milestone || [];
+  if(ms.length > 0) {
+    const hasMsSeparate = ms.some(m => m.tipo==='garanzia' || m.tipo==='saldo');
+    if(hasMsSeparate) return 0;
+  }
+  if(!commessa.garanzia) return 0;
   const g = commessa.garanzia;
   if(g.tipo==='Percentuale') {
     const perc = parseFloat(g.val)||0;
     return Math.round((fattura.lordo||0) * perc / 100);
   }
   if(g.tipo==='Importo fisso') {
-    // importo fisso ripartito su tutti i SAL della commessa (proporzionale)
     const tot = parseFloat(g.val)||0;
     const impContr = commessa.importoContrattuale||0;
     if(impContr<=0) return 0;
@@ -1273,10 +1281,14 @@ const PageWatchlist = ({onNav,openModal})=>{
   // Lista clienti unici per il dropdown
   const clientiUnici = [...new Set(D.commesse.map(c=>c.cliente))].sort();
 
-  // Filtro composito
+  // Filtro composito - cerca tollerante a spazi/case (es. "bx 107" = "BX107")
+  const normSearch = (s)=> String(s||'').toLowerCase().replace(/\s+/g,'');
   const commesse = D.commesse.filter(c=>{
-    const txt = filter.trim().toLowerCase();
-    if(txt&&!(c.codice+c.nome+c.cliente).toLowerCase().includes(txt)) return false;
+    const txt = normSearch(filter);
+    if(txt) {
+      const haystack = normSearch((c.codice||'') + (c.nome||'') + (c.cliente||'') + (c.nrOrdine||''));
+      if(!haystack.includes(txt)) return false;
+    }
     if(filtroTipo&&c.tipoLavoro!==filtroTipo) return false;
     if(filtroStato&&c.stato!==filtroStato) return false;
     if(filtroCliente&&c.cliente!==filtroCliente) return false;
