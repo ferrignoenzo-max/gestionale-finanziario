@@ -6133,6 +6133,7 @@ const ModalContent = ({type,data,onClose})=>{
 /* ─── AI ASSISTANT ───────────────────────────────────────── */
 const AIPanel = ({onClose})=>{
   const [apiKey,setApiKey]=useState(typeof localStorage!=='undefined'?localStorage.getItem('gemini_key')||'':'');
+  const [model,setModel]=useState(typeof localStorage!=='undefined'?localStorage.getItem('gemini_model')||'gemini-2.5-flash':'gemini-2.5-flash');
   const [showSettings,setShowSettings]=useState(!apiKey);
   const [tempKey,setTempKey]=useState(apiKey);
   const [msgs,setMsgs]=useState([
@@ -6204,12 +6205,18 @@ Se la domanda è su una commessa specifica, hai i dettagli completi nel CONTEXT.
 CONTEXT JSON:
 ${JSON.stringify(ctx, null, 1).slice(0, 30000)}`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const body = { contents:[{ parts:[{text: sys + '\n\nDOMANDA UTENTE:\n' + q}] }] };
     try {
       const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
       const data = await r.json();
-      if(!r.ok) return `❌ Errore Gemini: ${data?.error?.message || r.statusText}`;
+      if(!r.ok) {
+        const msg = data?.error?.message || r.statusText;
+        if(/quota|rate|limit/i.test(msg)) {
+          return `❌ Quota esaurita per modello "${model}".\n\nProva:\n• Aspetta 60 secondi (rate limit per minuto)\n• Oppure cambia modello in ⚙ Impostazioni → "gemini-2.5-flash-lite" o "gemini-flash-latest" hanno quota più alta.\n\nDettaglio: ${msg.slice(0,200)}`;
+        }
+        return `❌ Errore Gemini: ${msg}`;
+      }
       return data?.candidates?.[0]?.content?.parts?.[0]?.text || 'Nessuna risposta.';
     } catch(err) { return `❌ Errore di rete: ${err.message}`; }
   };
@@ -6247,6 +6254,15 @@ ${JSON.stringify(ctx, null, 1).slice(0, 30000)}`;
           </div>
           <input type="password" value={tempKey} onChange={e=>setTempKey(e.target.value)} placeholder="AIzaSy..."
             style={{width:'100%',border:`1px solid #fbbf24`,borderRadius:5,padding:'6px 8px',fontSize:12,fontFamily:'monospace',marginBottom:6,boxSizing:'border-box'}}/>
+          <div style={{fontSize:11,fontWeight:700,marginTop:6,marginBottom:4}}>Modello (cambia se hai problemi quota):</div>
+          <select value={model} onChange={e=>{setModel(e.target.value); localStorage.setItem('gemini_model',e.target.value);}}
+            style={{width:'100%',border:`1px solid #fbbf24`,borderRadius:5,padding:'5px 8px',fontSize:11,marginBottom:8,boxSizing:'border-box',background:'#fff'}}>
+            <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite (free 250/giorno · veloce)</option>
+            <option value="gemini-2.5-flash">gemini-2.5-flash (più potente, free 250/giorno)</option>
+            <option value="gemini-flash-latest">gemini-flash-latest (auto)</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash (free ridotto)</option>
+            <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp (sperimentale)</option>
+          </select>
           <div style={{display:'flex',gap:6}}>
             <button onClick={saveKey} style={{flex:1,background:'#16a34a',color:'#fff',border:'none',borderRadius:5,padding:'6px',fontSize:11,cursor:'pointer',fontWeight:600}}>💾 Salva</button>
             {apiKey && <button onClick={()=>{localStorage.removeItem('gemini_key');setApiKey('');setTempKey('');setShowSettings(true);}} style={{background:'#fff',color:T.red,border:`1px solid ${T.red}`,borderRadius:5,padding:'6px 12px',fontSize:11,cursor:'pointer'}}>Rimuovi</button>}
