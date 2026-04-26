@@ -2202,7 +2202,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
   const [delBusy,setDelBusy]=useState(false);
   const [expanded,setExpanded]=useState(null); // 'sal' | 'extra' | null
   if(!commessa) return <div style={{padding:24}}><Card><div style={{color:T.textL,textAlign:'center',padding:40}}>Nessuna commessa selezionata. <span style={{color:T.blue,cursor:'pointer'}} onClick={()=>onNav('watchlist')}>Vai alla watchlist →</span></div></Card></div>;
-  const c=commessa;
+  // 🔧 Sempre la versione fresh dalla collection D.commesse (post Aggiorna o updateCommessa)
+  // Fallback: la prop commessa originale se per qualche motivo non c'è più in D
+  const c = D.commesse.find(x => x.id === commessa.id) || D.commesse.find(x => x.codice === commessa.codice) || commessa;
   const daInc=D.fattureAttive.filter(f=>f.commessa===c.id&&f.stato!=='Scaduta').reduce((a,f)=>a+f.netto,0);
   const daPag=D.fatturePassive.filter(f=>f.commessa===c.id).reduce((a,f)=>a+f.netto,0);
   const saldo=c.incassato-c.pagato;
@@ -8090,13 +8092,23 @@ const App = ()=>{
   const [lastRefresh,setLastRefresh]=useState('');
 
   /* 🔄 REFRESH globale: ricarica tutto da Supabase + ri-aggancia fatture + persiste link.
-     Esposto via Header in alto, accessibile da qualunque pagina. */
+     Esposto via Header in alto, accessibile da qualunque pagina.
+     IMPORTANTE: dopo il reload, ri-puntiamo selCommessa al NUOVO oggetto di D.commesse
+     altrimenti la pagina dettaglio mostrerebbe la versione stale (es. garanzia=0 invece del nuovo calcolo). */
   const onRefresh = useCallback(async ()=>{
     setRefreshing(true);
     try {
+      // Ricorda quale commessa è selezionata (per ID o codice)
+      const oldSelId = selCommessa?.id;
+      const oldSelCodice = selCommessa?.codice;
       await loadFromSupabase();
       if(typeof window.persistLinkMatches === 'function'){
         try { await window.persistLinkMatches(); } catch(e) { console.warn('persistLinkMatches:', e.message); }
+      }
+      // 🔧 Re-punta selCommessa al nuovo oggetto fresh dopo il reload
+      if(oldSelId || oldSelCodice) {
+        const fresh = D.commesse.find(c => c.id===oldSelId) || D.commesse.find(c => c.codice===oldSelCodice);
+        if(fresh) setSelCommessa(fresh);
       }
       bumpData();
       const now = new Date();
@@ -8105,7 +8117,7 @@ const App = ()=>{
       alert('❌ Aggiornamento fallito: '+err.message);
     }
     setRefreshing(false);
-  },[bumpData]);
+  },[bumpData,selCommessa]);
 
   // Ctrl/Cmd+K apre ricerca globale
   useEffect(()=>{
