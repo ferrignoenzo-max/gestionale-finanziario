@@ -2005,12 +2005,6 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa})=>{
           if(m.tipo==='garanzia') return fattAttive.filter(f=> noExtra(f) && onlyMainOrder(f) && (f.tipoRifOverride==='Garanzia'||/garanzia|svincolo/i.test(f.oggetto||'')));
           return [];
         };
-        // Helper: estrae numero ordine principale dall'oggetto
-        const estraiOrdine = (oggetto)=>{
-          if(!oggetto) return '';
-          const m = String(oggetto).match(/(?:MYOA\d+(?:\/[A-Z]+)?|OR(?:CA|FO)\/\d{4}\/\d+|OLAV\/\d{4}\/\d+|\d{2}OA\d+|2\d{4}[A-Z]+\d+)/i);
-          return m ? m[0] : '';
-        };
         const lookupMP = (id) => (D.modalitaPagamento||[]).find(mp=>mp.id===id);
         const tipoIcon = {acconto:'💰',sal:'📊',saldo:'✅',garanzia:'🔐',fideiussione:'📜',altro:'•'};
         const tipoColor = {acconto:T.purple,sal:T.blue,saldo:T.green,garanzia:T.amber,fideiussione:'#92400e',altro:T.textL};
