@@ -1674,6 +1674,9 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
   // Obbligo contrattuale di garanzia (es. 24 mesi dalla consegna per vizi occulti)
   const [garDurataMesi,setGarDurataMesi]=useState(c.garanzia?.durataMesi||'24');
   const [garScadContrattuale,setGarScadContrattuale]=useState(c.garanzia?.scadenzaContrattuale||'');
+  // 🔐 Flag applicazione garanzia (default true se la commessa ha già garanzia, altrimenti true)
+  const [garTrattenutaSuFatture,setGarTrattenutaSuFatture]=useState(c.garanzia?.trattenutaSuFatture !== false);
+  const [garApplicaSuAcconto,setGarApplicaSuAcconto]=useState(c.garanzia?.applicaSuAcconto === true);
   const [compEnabled,setCompEnabled]=useState(!!c.compEnabled);
   const [autonomo,setAutonomo]=useState(!!c.autonomo);
   const [contratto,setContratto]=useState(c.contratto||null);
@@ -1712,9 +1715,9 @@ const EditCommessaModal = ({commessa, onClose, updateCommessa, addTemplate, dele
         svincolo:garScadenza||null,
         durataMesi:parseInt(garDurataMesi)||24,
         scadenzaContrattuale: garScadContrattuale || (dataFine && garDurataMesi ? new Date(new Date(dataFine).getTime()+parseInt(garDurataMesi)*30*86400000).toISOString().slice(0,10) : null),
-        // 🔐 IMPORTANTE: flag di applicazione (default ON quando garanzia attiva → trattenuta su fattura SAL)
-        trattenutaSuFatture: c.garanzia?.trattenutaSuFatture !== false, // default true salvo che l'utente abbia messo false
-        applicaSuAcconto: c.garanzia?.applicaSuAcconto === true,
+        // 🔐 Flag di applicazione (scelta utente nell'UI)
+        trattenutaSuFatture: garTrattenutaSuFatture,
+        applicaSuAcconto: garApplicaSuAcconto,
         residuo:c.garanzia?.residuo||0,
         nonIncassata:c.garanzia?.nonIncassata||0
       } : null,
@@ -2018,6 +2021,43 @@ NON USARE MAI tipo="acconto" per Benetti.`;
             <input type="checkbox" checked={garActive} onChange={e=>setGarActive(e.target.checked)}/> Garanzia prevista
           </label>
           {garActive&&<div style={{padding:10,background:T.amberL,borderRadius:6}}>
+            {/* Modalità garanzia — stessa UI del wizard Nuova Commessa */}
+            <div style={{marginBottom:12}}>
+              <label style={lab}>Modalità garanzia</label>
+              <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:6}}>
+                <label style={{display:'flex',gap:6,alignItems:'center',fontSize:13,cursor:'pointer',fontWeight:garTrattenutaSuFatture?600:400}}>
+                  <input type="radio" checked={garTrattenutaSuFatture===true} onChange={()=>setGarTrattenutaSuFatture(true)} style={{accentColor:T.amber}}/>
+                  Trattenuta su ogni SAL/fattura
+                </label>
+                <label style={{display:'flex',gap:6,alignItems:'center',fontSize:13,cursor:'pointer',fontWeight:garTrattenutaSuFatture===false?600:400}}>
+                  <input type="radio" checked={garTrattenutaSuFatture===false} onChange={()=>setGarTrattenutaSuFatture(false)} style={{accentColor:T.amber}}/>
+                  Nessuna trattenuta — milestone separata (Benetti)
+                </label>
+              </div>
+              {garTrattenutaSuFatture ? (
+                <div style={{background:'#fff',border:'1px solid #fde68a',borderRadius:6,padding:'7px 12px',fontSize:12,color:'#92400e'}}>
+                  ℹ️ Trattenuta del N% su ogni fattura SAL. Data svincolo calcolata automaticamente.
+                </div>
+              ) : (
+                <div style={{background:'#dcfce7',border:'1px solid #86efac',borderRadius:6,padding:'7px 12px',fontSize:12,color:'#15803d'}}>
+                  ✓ Le fatture SAL passano nette al 100%. La garanzia è una rata separata pagata a scadenza.
+                </div>
+              )}
+            </div>
+
+            {/* Checkbox: applica trattenuta anche sull'acconto */}
+            {garTrattenutaSuFatture && accActive && (
+              <div style={{marginBottom:12,padding:10,background:'#fff',borderRadius:6,border:`1px solid #fde68a`}}>
+                <label style={{display:'flex',gap:8,alignItems:'center',fontSize:12,cursor:'pointer',fontWeight:600,color:'#92400e'}}>
+                  <input type="checkbox" checked={garApplicaSuAcconto} onChange={e=>setGarApplicaSuAcconto(e.target.checked)} style={{accentColor:T.amber}}/>
+                  Applica trattenuta garanzia anche sull'acconto
+                </label>
+                <div style={{fontSize:10,color:T.textL,marginTop:4,marginLeft:24}}>
+                  {garApplicaSuAcconto ? '✓ La garanzia verrà trattenuta anche dalla fattura di acconto.' : 'Default: l\'acconto non subisce ritenuta di garanzia (es. Benetti).'}
+                </div>
+              </div>
+            )}
+
             {/* Sezione 1: % di trattenuta */}
             <div style={{fontSize:11,fontWeight:700,color:'#92400e',marginBottom:6,textTransform:'uppercase',letterSpacing:.3}}>① Trattenuta su fattura</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
