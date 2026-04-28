@@ -421,28 +421,21 @@ const ricalcolaKPI = ()=>{
 };
 
 async function loadFromSupabase() {
-  // Fetch con tolleranza 404 + paginazione esplicita per superare il limite default 1000 di PostgREST
+  // Fetch con tolleranza 404 + cache no-store
   const safeFetch = async (url)=>{
     try {
-      // Supabase/PostgREST ha limit 1000 per default → uso Range header per chiedere tutto
-      const headers = {
-        ...SB_H,
-        'Cache-Control':'no-cache',
-        'Range-Unit':'items',
-        'Range':'0-49999', // fino a 50k righe
-        'Prefer':'count=exact'
-      };
-      const r = await fetch(url,{headers,cache:'no-store'});
+      const r = await fetch(url,{headers:{...SB_H,'Cache-Control':'no-cache'},cache:'no-store'});
       return r.ok?await r.json():[];
     } catch { return []; }
   };
+  // ⚠️ Aggiunto limit=10000 ESPLICITO sui fetch principali per superare il limit default 1000 di PostgREST
   const [attive, passive, ana, commesse, modPag, tplReg] = await Promise.all([
-    safeFetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=data.desc`),
-    safeFetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=data.desc`),
-    safeFetch(`${SB_URL}/rest/v1/anagrafica?select=*&order=nome.asc`),
-    safeFetch(`${SB_URL}/rest/v1/commesse?select=*&order=codice.asc`),
-    safeFetch(`${SB_URL}/rest/v1/modalita_pagamento?select=*&order=nome.asc`),
-    safeFetch(`${SB_URL}/rest/v1/template_regole_pagamento?select=*&order=nome.asc`),
+    safeFetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=data.desc&limit=10000`),
+    safeFetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=data.desc&limit=10000`),
+    safeFetch(`${SB_URL}/rest/v1/anagrafica?select=*&order=nome.asc&limit=10000`),
+    safeFetch(`${SB_URL}/rest/v1/commesse?select=*&order=codice.asc&limit=10000`),
+    safeFetch(`${SB_URL}/rest/v1/modalita_pagamento?select=*&order=nome.asc&limit=10000`),
+    safeFetch(`${SB_URL}/rest/v1/template_regole_pagamento?select=*&order=nome.asc&limit=10000`),
   ]);
   if(!D.modalitaPagamento) D.modalitaPagamento = [];
   D.modalitaPagamento.splice(0);
@@ -892,7 +885,7 @@ const Sidebar = ({page,onNav,onSearch})=>{
 /* ─── HEADER ──────────────────────────────────────────────── */
 const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
-const APP_VERSION = 'v2026.04.27-r8'; // FIX paginazione: 1148 righe in DB ma Supabase limit 1000
+const APP_VERSION = 'v2026.04.27-r9'; // FIX paginazione: limit=10000 esplicito nell'URL
 const Header = ({page,onAI,onRefresh,refreshing,lastRefresh,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
     <div>
