@@ -2502,14 +2502,9 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
     if(!ordF) return true; // fatture senza nr ordine identificabile passano
     return ordF === _ordPrincipale;
   };
-  // SAL "raw": somma fatture non-extra dell'ordine principale (può eccedere il contratto)
-  const salRawDyn = c.salProdAttivoTot && c.salProdAttivoTot>0
+  const salProdAttivoTotDyn = c.salProdAttivoTot && c.salProdAttivoTot>0
     ? c.salProdAttivoTot
     : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f)).reduce((a,f)=>a+_impOf(f),0);
-  // 🚨 CAP al 100% del contratto base: tutto ciò che eccede va in Extra (richiesta utente)
-  const _impContratto = parseFloat(c.importoContrattuale)||0;
-  const eccedenzaSAL = _impContratto>0 ? Math.max(0, salRawDyn - _impContratto) : 0;
-  const salProdAttivoTotDyn = _impContratto>0 ? Math.min(salRawDyn, _impContratto) : salRawDyn;
   // 🔐 GARANZIA MATURATA DINAMICA: somma garanzia trattenuta su tutte le fatture linkate a questa commessa
   const fattureCommessa = D.fattureAttive.filter(f=>f.commessa===c.id);
   const garanziaMaturataDyn = fattureCommessa.reduce((a,f)=>a+(parseFloat(f.garanzia)||0),0);
@@ -2519,9 +2514,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
   const salProdPct=c.importoContrattuale>0?Math.round((salProdAttivoTotDyn/c.importoContrattuale)*100):0;
   // Extra (fuori contratto base) = fatture EXTRA/BAP O ordini diversi dal principale
   const fattureExtraDyn = D.fattureAttive.filter(f=>f.commessa===c.id && (_isExtra(f) || !_isMainOrder(f)));
-  // Extra reale + eccedenza SAL oltre il 100% del contratto (cap automatico)
-  const totExtraRaw = fattureExtraDyn.reduce((a,f)=>a+_impOf(f),0);
-  const totExtraDyn = totExtraRaw + eccedenzaSAL;
+  const totExtraDyn = fattureExtraDyn.reduce((a,f)=>a+_impOf(f),0);
   // Fatture SAL del contratto base (per la tendina avanzamento)
   const fattureSALDyn = D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f))
     .sort((a,b)=>(a.data||'').localeCompare(b.data||''));
@@ -2548,6 +2541,17 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
         <span style={{background:c.tipoLavoro==='Commessa'?T.blueL:c.tipoLavoro==='Ordine'?'#f0fdf4':T.purpleL,color:c.tipoLavoro==='Commessa'?T.blue:c.tipoLavoro==='Ordine'?T.green:T.purple,padding:'3px 10px',borderRadius:12,fontSize:11,fontWeight:700}}>{c.tipoLavoro}</span>
         <span style={{fontSize:13,color:T.textL}}>{c.nome}</span>
         <Btn onClick={()=>setEditOpen(true)} variant='outline' size='sm' style={{marginLeft:'auto'}}>✏️ Modifica</Btn>
+        {c.stato==='Completata' ? (
+          <Btn onClick={async ()=>{
+            try { await updateCommessa(c.id, {stato:'Attiva'}); } catch(e){}
+          }} variant='outline' size='sm' style={{borderColor:T.green,color:T.green}}>↩ Riattiva</Btn>
+        ) : (
+          <Btn onClick={async ()=>{
+            if(window.confirm(`Archiviare ${c.codice}? Verrà nascosta dalla watchlist (filtro 'Attiva') ma restano fatture e dati. Puoi sempre riattivarla.`)){
+              try { await updateCommessa(c.id, {stato:'Completata'}); onNav('watchlist'); } catch(e){}
+            }
+          }} variant='outline' size='sm' style={{borderColor:T.amber,color:'#92400e'}}>📦 Archivia</Btn>
+        )}
         <Btn onClick={()=>setDelStep(1)} variant='outline' size='sm' style={{borderColor:T.red,color:T.red}}>🗑 Elimina</Btn>
       </div>
       {editOpen&&<EditCommessaModal commessa={c} onClose={()=>setEditOpen(false)} updateCommessa={updateCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
@@ -2626,11 +2630,7 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
             <span style={{color:T.purple}}>{expanded==='extra'?'▼':'▶'}</span>
           </div>
           <div style={{fontSize:20,fontWeight:800,color:T.purple}}>{fmt(totExtraDyn)}</div>
-          <div style={{fontSize:10,color:T.textL}}>
-            fuori contratto · {fattureExtraDyn.length} fatt.
-            {eccedenzaSAL>0 && <span style={{color:T.amber,fontWeight:600}}> + {fmt(eccedenzaSAL)} eccedenza SAL</span>}
-            {' '}· clic dettaglio
-          </div>
+          <div style={{fontSize:10,color:T.textL}}>fuori contratto · {fattureExtraDyn.length} fatt. · clic dettaglio</div>
         </div>
         <div style={{background:'#fff',borderRadius:8,padding:12,boxShadow:T.sh,borderLeft:`4px solid ${T.red}`}}>
           <div style={{fontSize:10,color:T.textL,fontWeight:600,textTransform:'uppercase'}}>Da fatturare</div>
