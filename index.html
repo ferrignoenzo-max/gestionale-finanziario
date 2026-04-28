@@ -452,10 +452,12 @@ async function loadFromSupabase() {
     imponibile: parseFloat(f.imponibile)||0, iva: parseFloat(f.iva)||0,
     lordo: parseFloat(f.lordo)||0, garanzia: 0, netto: parseFloat(f.lordo)||0,
     stato: f.stato||'Aperta', note: f.note||'',
-    commessa: null, commessaCodice: null, sal: null,
+    // 🔧 Usa commessa_id già salvato in DB come valore iniziale
+    // linkFatture lo confermerà o sovrascriverà via parser dell'oggetto
+    commessa: f.commessa_id||null, commessaCodice: f.commessa_codice||null, sal: null,
     tipoRif: f.tipo_rif||null, // override manuale Acconto/SAL/Saldo/Garanzia
     tipoRifOverride: f.tipo_rif||null,
-    salNum: null, extraId: null, statoLink: 'NonAssegnata',
+    salNum: null, extraId: null, statoLink: f.commessa_id?'AssegnataDB':'NonAssegnata',
     compGen: 0, compSub: 0,
   }));
   D.fatturePassive.splice(0);
@@ -469,10 +471,11 @@ async function loadFromSupabase() {
     compGen: 0, compSub: 0,
     netto: parseFloat(f.lordo)||0,
     stato: f.stato||'Aperta', note: f.note||'',
+    // 🔧 Usa commessa_id già salvato in DB come valore iniziale
+    commessa: f.commessa_id||null, commessaCodice: f.commessa_codice||null, sal: null,
     tipoRif: f.tipo_rif||null,
     tipoRifOverride: f.tipo_rif||null,
-    commessa: null, commessaCodice: null, sal: null,
-    tipoRif: null, salNum: null, extraId: null, statoLink: 'NonAssegnata',
+    salNum: null, extraId: null, statoLink: f.commessa_id?'AssegnataDB':'NonAssegnata',
   }));
   D.anagrafica.splice(0);
   ana.forEach(a => D.anagrafica.push({
@@ -876,7 +879,7 @@ const Sidebar = ({page,onNav,onSearch})=>{
 /* ─── HEADER ──────────────────────────────────────────────── */
 const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
-const APP_VERSION = 'v2026.04.27-r4'; // 🆕 cambiato a ogni deploy
+const APP_VERSION = 'v2026.04.27-r5'; // fix loadFromSupabase legge commessa_id da DB
 const Header = ({page,onAI,onRefresh,refreshing,lastRefresh,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
     <div>
