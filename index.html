@@ -837,6 +837,7 @@ const NAV=[
   {section:'COMMESSE & CONTRATTI'},
   {id:'nuovaCommessa',label:'➕ Nuova Commessa',icon:'＋'},
   {id:'watchlist',label:'Watchlist Commesse',icon:'⊞'},
+  {id:'archivio',label:'📦 Archivio',icon:'📦'},
   {id:'analisiExtra',label:'📊 Analisi Extra',icon:'📊'},
   {id:'modalitaPagamento',label:'💳 Modalità Pagamento',icon:'💳'},
   {id:'garanzieAcc',label:'Garanzie & Acconti',icon:'🔒'},
@@ -899,7 +900,7 @@ const Sidebar = ({page,onNav,onSearch})=>{
 };
 
 /* ─── HEADER ──────────────────────────────────────────────── */
-const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
+const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',archivio:'📦 Archivio Commesse Completate',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
 const APP_VERSION = 'v2026.04.27-r10'; // FIX paginazione automatica con offset (max-rows server-side)
 const Header = ({page,onAI,onRefresh,refreshing,lastRefresh,selectedCommessa})=>(
@@ -1363,6 +1364,12 @@ const PageDashboard = ({onNav,openModal})=>{
                     <span style={{fontSize:12,color:T.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{c.nome}</span>
                     <span style={{fontSize:11,color:T.textL,flexShrink:0,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.cliente}</span>
                     <span style={{fontWeight:700,fontSize:12,color:T.textL,flexShrink:0,minWidth:80,textAlign:'right'}}>{c.importoContrattuale>0?fmt(c.importoContrattuale):<span style={{color:T.amber,fontStyle:'italic',fontSize:10}}>importo n/d</span>}</span>
+                    <button onClick={async (e)=>{
+                      e.stopPropagation();
+                      if(window.confirm(`Archiviare ${c.codice}? Verrà spostata in Archivio (puoi sempre riattivarla).`)){
+                        try { if(window._updateCommessa) await window._updateCommessa(c.id, {stato:'Completata'}); } catch(err){}
+                      }
+                    }} title="📦 Archivia commessa" style={{flexShrink:0,border:`1px solid ${T.border}`,background:'#fff',color:'#92400e',padding:'3px 7px',borderRadius:5,fontSize:11,cursor:'pointer'}} onMouseEnter={e=>{e.currentTarget.style.background='#fffbeb';e.currentTarget.style.borderColor='#fcd34d';}} onMouseLeave={e=>{e.currentTarget.style.background='#fff';e.currentTarget.style.borderColor=T.border;}}>📦</button>
                   </div>
                   {c.importoContrattuale>0 && (
                   <div style={{paddingLeft:42}}>
@@ -1671,6 +1678,116 @@ const PageDashboard = ({onNav,openModal})=>{
 };
 
 /* ─── PAGE: WATCHLIST COMMESSE ───────────────────────────── */
+/* ─── PAGE: ARCHIVIO ─────────────────────────────────────── */
+const PageArchivio = ({onNav})=>{
+  const [filter,setFilter] = useState('');
+  const [filtroCliente,setFiltroCliente] = useState('');
+  const [busy,setBusy] = useState(null);
+
+  const archiviate = D.commesse.filter(c => c.stato==='Completata');
+  const clientiUnici = [...new Set(archiviate.map(c=>c.cliente).filter(Boolean))].sort();
+
+  const norm = (s)=>String(s||'').toLowerCase().replace(/\s+/g,'');
+  const lista = archiviate.filter(c=>{
+    if(filter && !norm(c.codice+c.nome+c.cliente+(c.nrOrdine||'')).includes(norm(filter))) return false;
+    if(filtroCliente && c.cliente!==filtroCliente) return false;
+    return true;
+  }).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
+
+  const totImporto = lista.reduce((a,c)=>a+(c.importoContrattuale||0),0);
+  const totFatturato = lista.reduce((a,c)=>{
+    const f = D.fattureAttive.filter(f=>f.commessa===c.id).reduce((s,f)=>s+(f.lordo||0),0);
+    return a+f;
+  },0);
+
+  const riattiva = async (c) => {
+    if(!window.confirm(`Riattivare ${c.codice}? Tornerà visibile nella watchlist principale.`)) return;
+    setBusy(c.id);
+    try {
+      if(window._updateCommessa) await window._updateCommessa(c.id, {stato:'Attiva'});
+    } catch(e) { /* alert già mostrato */ }
+    setBusy(null);
+  };
+
+  return (
+    <div style={{padding:24}}>
+      {/* KPI top */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:14,marginBottom:18}}>
+        <div style={{background:'#fff',borderRadius:8,padding:14,boxShadow:T.sh,borderLeft:`4px solid ${T.amber}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Commesse archiviate</div>
+          <div style={{fontSize:22,fontWeight:800,color:T.amber}}>{archiviate.length}</div>
+          <div style={{fontSize:10,color:T.textL}}>{lista.length} mostrate</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:14,boxShadow:T.sh,borderLeft:`4px solid ${T.blue}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Totale importo contrattuale</div>
+          <div style={{fontSize:22,fontWeight:800,color:T.blue}}>{fmt(totImporto)}</div>
+          <div style={{fontSize:10,color:T.textL}}>delle commesse filtrate</div>
+        </div>
+        <div style={{background:'#fff',borderRadius:8,padding:14,boxShadow:T.sh,borderLeft:`4px solid ${T.green}`}}>
+          <div style={{fontSize:10,color:T.textL,fontWeight:700,textTransform:'uppercase'}}>Totale fatturato</div>
+          <div style={{fontSize:22,fontWeight:800,color:T.green}}>{fmt(totFatturato)}</div>
+          <div style={{fontSize:10,color:T.textL}}>somma fatture linkate</div>
+        </div>
+      </div>
+
+      {/* Filtri */}
+      <Card style={{marginBottom:14,padding:'12px 16px'}}>
+        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+          <input value={filter} onChange={e=>setFilter(e.target.value)} placeholder="🔍 Cerca codice, nome, cliente, n° ordine…" style={{flex:1,minWidth:240,border:`1px solid ${T.border}`,borderRadius:6,padding:'6px 10px',fontSize:13}}/>
+          <select value={filtroCliente} onChange={e=>setFiltroCliente(e.target.value)} style={{border:`1px solid ${T.border}`,borderRadius:6,padding:'6px 10px',fontSize:13,background:'#fff'}}>
+            <option value="">Tutti i clienti</option>
+            {clientiUnici.map(cl=><option key={cl} value={cl}>{cl}</option>)}
+          </select>
+          {(filter||filtroCliente) && <Btn variant='outline' size='sm' onClick={()=>{setFilter('');setFiltroCliente('');}}>✕ Azzera</Btn>}
+        </div>
+      </Card>
+
+      {/* Lista archiviate */}
+      <Card style={{padding:0}}>
+        <div style={{padding:'10px 16px',background:'#fffbeb',borderBottom:`1px solid ${T.border}`,fontSize:12,color:'#92400e'}}>
+          📦 Le commesse in archivio non sono visibili nella Watchlist e nel widget Avanzamento. Le fatture restano collegate. Per ripristinarne una, premi "↩ Riattiva" sulla riga.
+        </div>
+        {lista.length===0 ? (
+          <div style={{padding:40,textAlign:'center',color:T.textL,fontSize:13}}>Nessuna commessa archiviata corrisponde ai filtri.</div>
+        ) : (
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse'}}>
+              <thead><tr style={{background:'#f8fafc'}}>
+                {['Tipo','Codice','Nome','Cliente','N° Ordine','Importo','Fatturato','Azioni'].map((h,i)=>(<Th key={i} right={i===5||i===6}>{h}</Th>))}
+              </tr></thead>
+              <tbody>
+                {lista.map(c=>{
+                  const fatt = D.fattureAttive.filter(f=>f.commessa===c.id).reduce((a,f)=>a+(f.lordo||0),0);
+                  const tipoColor = c.tipoLavoro==='Commessa'?{bg:T.blueL,color:T.blue}:c.tipoLavoro==='Ordine'?{bg:'#f0fdf4',color:T.green}:{bg:T.purpleL,color:T.purple};
+                  return (
+                    <tr key={c.id} style={{borderBottom:`1px solid ${T.border}`,opacity:.85}}
+                      onMouseEnter={e=>e.currentTarget.style.background='#fafbfc'}
+                      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <Td><span style={{background:tipoColor.bg,color:tipoColor.color,padding:'2px 7px',borderRadius:10,fontSize:10,fontWeight:700,whiteSpace:'nowrap'}}>{c.tipoLavoro}</span></Td>
+                      <Td><span style={{fontWeight:700,color:T.blue,cursor:'pointer'}} onClick={()=>onNav('dettaglioCommessa',c)}>{c.codice}</span></Td>
+                      <Td>{c.nome}</Td>
+                      <Td>{c.cliente}</Td>
+                      <Td><span style={{fontFamily:'monospace',fontSize:11,color:T.textL}}>{c.nrOrdine||'—'}</span></Td>
+                      <Td right>{c.importoContrattuale>0?fmt(c.importoContrattuale):<span style={{color:T.textL,fontStyle:'italic'}}>—</span>}</Td>
+                      <Td right color={T.green}>{fmt(fatt)}</Td>
+                      <Td>
+                        <div style={{display:'flex',gap:4}}>
+                          <Btn variant='ghost' size='sm' onClick={()=>onNav('dettaglioCommessa',c)}>Dettaglio</Btn>
+                          <Btn size='sm' disabled={busy===c.id} onClick={()=>riattiva(c)} style={{background:T.green,color:'#fff'}}>{busy===c.id?'...':'↩ Riattiva'}</Btn>
+                        </div>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+};
+
 const PageWatchlist = ({onNav,openModal})=>{
   const [filter,setFilter]    = useState('');
   const [filtroTipo,setFiltroTipo]   = useState('');   // '' | 'Commessa' | 'Ordine' | 'Extra'
@@ -8188,6 +8305,7 @@ const D_DEMO_ANAGRAFICA_LEN = D.anagrafica.length;
 const BREAD={
   dashboard:[{label:'Dashboard'}],
   watchlist:[{label:'Dashboard',page:'dashboard'},{label:'Watchlist Commesse'}],
+  archivio:[{label:'Dashboard',page:'dashboard'},{label:'Archivio Commesse'}],
   dettaglioCommessa:[{label:'Dashboard',page:'dashboard'},{label:'Watchlist',page:'watchlist'},{label:'Dettaglio Commessa'}],
   scadenziario:[{label:'Dashboard',page:'dashboard'},{label:'Scadenziario'}],
   fattureAttive:[{label:'Dashboard',page:'dashboard'},{label:'Fatture Attive'}],
@@ -8772,6 +8890,8 @@ const App = ()=>{
       throw new Error(errMsg);
     }
   },[bumpData]);
+  // Esponi updateCommessa per i bottoni inline (es. archivia da widget Avanzamento)
+  useEffect(()=>{ window._updateCommessa = updateCommessa; },[updateCommessa]);
 
   /* Elimina commessa: rimuove da Supabase + memoria, scollega le fatture (commessa_id=NULL).
      Le fatture restano in DB e tornano "non assegnate" per essere riagganciate ad altra commessa. */
@@ -8848,6 +8968,7 @@ const App = ()=>{
 </div>}
         {page==='dashboard'&&<PageDashboard onNav={navigate} openModal={openModal}/>}
           {page==='watchlist'&&<PageWatchlist onNav={navigate} openModal={openModal}/>}
+          {page==='archivio'&&<PageArchivio onNav={navigate}/>}
           {page==='dettaglioCommessa'&&<PageDettaglioCommessa commessa={selCommessa} onNav={navigate} openModal={openModal} updateCommessa={updateCommessa} deleteCommessa={deleteCommessa} addTemplate={addTemplate} deleteTemplate={deleteTemplate}/>}
           {page==='scadenziario'&&<PageScadenziario openModal={openModal}/>}
           {page==='fattureAttive'&&<PageFattureAttive onNav={navigate} openModal={openModal}/>}
