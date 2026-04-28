@@ -876,10 +876,11 @@ const Sidebar = ({page,onNav,onSearch})=>{
 /* ─── HEADER ──────────────────────────────────────────────── */
 const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
+const APP_VERSION = 'v2026.04.27-r4'; // 🆕 cambiato a ogni deploy
 const Header = ({page,onAI,onRefresh,refreshing,lastRefresh,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
     <div>
-      <h1 style={{fontSize:17,fontWeight:700,color:T.text}}>{TITLES[page]||'Gestionale'}</h1>
+      <h1 style={{fontSize:17,fontWeight:700,color:T.text}}>{TITLES[page]||'Gestionale'} <span style={{fontSize:10,color:T.textL,fontWeight:400,marginLeft:8}}>{APP_VERSION}</span></h1>
       {selectedCommessa&&<div style={{fontSize:11,color:T.textL,marginTop:2}}>Commessa {selectedCommessa.codice} · {selectedCommessa.cliente}</div>}
     </div>
     <div style={{display:'flex',gap:8,alignItems:'center'}}>
