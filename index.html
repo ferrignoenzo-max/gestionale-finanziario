@@ -165,6 +165,7 @@ const normCodice = (s)=> String(s||'').toUpperCase().replace(/\s+/g,'');
 const preNormOggetto = (s)=>{
   if(!s) return '';
   return String(s)
+    .replace(/\s+/g,' ') // 🆕 Compatta spazi multipli (errore comune copy-paste FIC: "ORDINE  MYOA")
     .replace(/\b(B)\s*([A-Z]{1,3})\s*(\d{3,4}[A-Z]?)\b/gi, '$1$2$3')
     .replace(/\b(SLA|SLM|XSP)\s*(\d{2,4}N?)\s*\/\s*(\d+)/gi, '$1$2/$3')
     .replace(/\b(\d{5}N?)\s*\/\s*(\d+)\b/gi, '$1/$2');
@@ -2479,7 +2480,6 @@ const PageDettaglioCommessa = ({commessa,onNav,openModal,updateCommessa,addTempl
     ? c.salProdAttivoTot
     : D.fattureAttive.filter(f=>f.commessa===c.id && !_isExtra(f) && !_isSaldo(f) && !_isGaranzia(f) && _isMainOrder(f)).reduce((a,f)=>a+_impOf(f),0);
   // 🔐 GARANZIA MATURATA DINAMICA: somma garanzia trattenuta su tutte le fatture linkate a questa commessa
-  // (linkFatture ha già calcolato f.garanzia per ognuna applicando le regole di c.garanzia)
   const fattureCommessa = D.fattureAttive.filter(f=>f.commessa===c.id);
   const garanziaMaturataDyn = fattureCommessa.reduce((a,f)=>a+(parseFloat(f.garanzia)||0),0);
   // Fatture saldo/svincolo già emesse → riducono il maturato
