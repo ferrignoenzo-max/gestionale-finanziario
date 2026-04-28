@@ -421,8 +421,14 @@ const ricalcolaKPI = ()=>{
 };
 
 async function loadFromSupabase() {
-  // Fetch con tolleranza 404 (tabella commesse potrebbe non esistere ancora)
-  const safeFetch = async (url)=>{ try { const r = await fetch(url,{headers:SB_H}); return r.ok?await r.json():[]; } catch { return []; } };
+  // Fetch con tolleranza 404 + cache-busting timestamp per forzare risposta fresca da Supabase
+  const safeFetch = async (url)=>{
+    try {
+      const sep = url.includes('?')?'&':'?';
+      const r = await fetch(url+sep+'_t='+Date.now(),{headers:{...SB_H,'Cache-Control':'no-cache,no-store'},cache:'no-store'});
+      return r.ok?await r.json():[];
+    } catch { return []; }
+  };
   const [attive, passive, ana, commesse, modPag, tplReg] = await Promise.all([
     safeFetch(`${SB_URL}/rest/v1/fatture_attive?select=*&order=data.desc`),
     safeFetch(`${SB_URL}/rest/v1/fatture_passive?select=*&order=data.desc`),
@@ -879,7 +885,7 @@ const Sidebar = ({page,onNav,onSearch})=>{
 /* ─── HEADER ──────────────────────────────────────────────── */
 const TITLES={dashboard:'Dashboard Operativa',watchlist:'Watchlist Commesse',scadenziario:'Scadenziario Operativo',fattureAttive:'Fatture Attive Clienti',fatturePassive:'Fatture Passive da Pagare',noteCredito:'Note di Credito',attiveSub:'Attive verso Subappaltatori',storicoComp:'Storico Compensazioni',nuovaCommessa:'Nuova Commessa / Ordine / Extra',modalitaPagamento:'💳 Modalità Pagamento – Libreria',analisiExtra:'📊 Analisi Extra – Classifica commesse per extra fatturati',sal:'Gestione SAL – Controllo mensile',listaExtra:'Lista Extra',regoleEcon:'Regole Economiche',garanzieAcc:'Garanzie & Acconti',anagrafica:'Anagrafica Clienti & Fornitori',utenze:'⚡ Utenze',fornitori:'🏗 Fornitori Materiali & Servizi',subappaltatori:'👷 Subappaltatori',fornitoriGen:'Fornitori Generici & Utenze (KPI)',primaNota:'Prima Nota',auditLog:'Audit Log',dettaglioCommessa:'Dettaglio Commessa',banca:'Estratto Conto & Riconciliazione',report:'Report & Stampa',importa:'📥 Importa Dati'};
 
-const APP_VERSION = 'v2026.04.27-r5'; // fix loadFromSupabase legge commessa_id da DB
+const APP_VERSION = 'v2026.04.27-r6'; // cache busting + fix loadFromSupabase
 const Header = ({page,onAI,onRefresh,refreshing,lastRefresh,selectedCommessa})=>(
   <div style={{background:T.white,borderBottom:`1px solid ${T.border}`,padding:'12px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0,boxShadow:'0 1px 0 rgba(0,0,0,.06)'}}>
     <div>
